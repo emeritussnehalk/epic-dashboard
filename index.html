@@ -1,0 +1,895 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF to Consolidated Excel</title>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --card: #ffffff;
+      --text: #101828;
+      --muted: #475467;
+      --accent: #07854a;
+      --accent-2: #066b3c;
+      --border: #d0d5dd;
+      --ok: #07854a;
+      --warn: #c4322a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #f7f8fa 0%, #f2f4f7 100%);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 6px 18px rgba(16, 24, 40, 0.07);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #eaecf0;
+    }
+    .brand img {
+      height: 40px;
+      width: auto;
+      object-fit: contain;
+      display: block;
+    }
+    h1 { margin: 0 0 10px; font-size: 24px; }
+    p { margin: 0 0 14px; color: var(--muted); }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .file-hint {
+      font-size: 12px;
+      color: #475467;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      width: 100%;
+      margin-top: -2px;
+    }
+    .search-wrap {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #d0d5dd;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+    }
+    .search-label {
+      font-size: 12px;
+      color: #344054;
+      font-weight: 600;
+      margin-bottom: 6px;
+      letter-spacing: 0.2px;
+    }
+    .search-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .search-or {
+      font-size: 12px;
+      font-weight: 700;
+      color: #065f46;
+      background: #dcfae6;
+      border: 1px solid #abefc6;
+      border-radius: 999px;
+      padding: 6px 10px;
+      line-height: 1;
+    }
+    input[type="file"] { max-width: 100%; }
+    input[type="text"] {
+      border: 1px solid #d0d5dd;
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+      min-width: 240px;
+      background: #ffffff;
+      color: #101828;
+    }
+    input[type="text"]:focus {
+      border-color: #079455;
+      box-shadow: 0 0 0 3px rgba(7, 133, 74, 0.14);
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+      color: white;
+      background: var(--accent);
+    }
+    button:hover { background: var(--accent-2); }
+    button:disabled { background: #98a2b3; cursor: not-allowed; }
+    .ghost {
+      background: #ffffff;
+      color: #066b3c;
+      border: 1px solid #d0d5dd;
+    }
+    .ghost:hover {
+      background: #f9fafb;
+      color: #066b3c;
+      border: 1px solid #b7ebcd;
+    }
+    .ghost:disabled {
+      background: #ffffff;
+      color: #98a2b3;
+      border: 1px solid #d0d5dd;
+      cursor: not-allowed;
+    }
+    .status { margin-top: 10px; font-size: 14px; }
+    .status.ok { color: var(--ok); }
+    .status.warn { color: var(--warn); }
+    .meta { margin-top: 10px; font-size: 13px; color: var(--muted); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f2f4f7;
+      position: sticky;
+      top: 0;
+    }
+    th.sortable { cursor: pointer; user-select: none; }
+    .table-wrap {
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: #f2f4f7;
+      color: #344054;
+      border: 1px solid #d0d5dd;
+      padding: 9px 12px;
+      border-radius: 10px;
+      font-weight: 700;
+    }
+    .tab-btn:hover {
+      background: #ecfdf3;
+      border-color: #b7ebcd;
+      color: #066b3c;
+    }
+    .tab-btn.active {
+      background: #07854a;
+      border-color: #07854a;
+      color: #fff;
+    }
+    .tab-btn.active:hover {
+      background: #07854a;
+      border-color: #07854a;
+      color: #fff;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .policy-box {
+      border: 1px solid #d0d5dd;
+      border-radius: 12px;
+      padding: 14px;
+      background: #f9fafb;
+      line-height: 1.45;
+    }
+    .policy-box h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .policy-box p {
+      margin: 6px 0;
+      color: #344054;
+      font-size: 14px;
+    }
+    code { background: #f3f7ff; padding: 2px 4px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="brand">
+        <img src="https://s44783.pcdn.co/in/wp-content/uploads/sites/3/2023/10/emeritus-logo.png.webp" alt="Emeritus logo" />
+      </div>
+      <h1>Student-Course GPA Consolidated Report</h1>
+      <p>
+        
+      </p>
+      <div class="row">
+        <input id="pdfFile" type="file" accept="application/pdf" multiple />
+        <input id="studentFilter" type="text" placeholder="Optional Student ID (e.g., B00781408)" />
+        <button id="processBtn">Process PDF</button>
+        <button id="downloadBtn" class="ghost" disabled>Download Excel</button>
+        <div class="file-hint">Instruction: Upload only GPA Report PDF file(s).</div>
+      </div>
+      <div id="status" class="status"></div>
+      <div class="meta">
+        
+      </div>
+    </div>
+    <div class="card">
+      <div class="search-wrap">
+        <div class="search-label">Search by Unique Student ID or Course ID (after processing)</div>
+        <div class="search-row">
+          <input id="searchStudentId" type="text" placeholder="Unique Id (e.g., B00781408)" />
+          <span class="search-or">OR</span>
+          <input id="searchCourseCode" type="text" placeholder="Course Code (e.g., BUSU620)" />
+          <button id="applySearchBtn" class="ghost" disabled>Search</button>
+          <button id="clearSearchBtn" class="ghost" disabled>Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <button id="tabSummary" class="tab-btn active" data-tab="summaryPanel">Student Summary</button>
+        <button id="tabCourse" class="tab-btn" data-tab="coursePanel">Course Attempts</button>
+        <button id="tabFee" class="tab-btn" data-tab="feePanel">Fee Applicable Courses</button>
+        <button id="tabPolicy" class="tab-btn" data-tab="policyPanel">Policy</button>
+      </div>
+      <div id="coursePanel" class="tab-panel">
+        <strong>Course Attempts</strong>
+        <div class="table-wrap">
+          <table id="courseTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="summaryPanel" class="tab-panel active">
+        <strong>Student Summary</strong>
+        <div class="table-wrap">
+          <table id="summaryTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="feePanel" class="tab-panel">
+        <strong>Fee Applicable Courses</strong>
+        <div class="table-wrap">
+          <table id="feeTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="policyPanel" class="tab-panel">
+        <div class="policy-box">
+          <h3>Policy Used for This Report</h3>
+          <p><strong>Failure Rule</strong></p>
+          <p>1. A course attempt is treated as failed when grade is <code>Blank</code> or grade is <code>C-</code> and below (<code>D+</code>, <code>D</code>, <code>D-</code>, <code>F</code>, etc.).</p>
+          <p>2. A course is marked failed for a student if any attempt of that course is failed.</p>
+          <p><strong>Retake Fee Rule</strong></p>
+          <p>1. Attempt count is the number of times the same <code>Course Code</code> appears for a student.</p>
+          <p>2. One free retake is consumed first on a repeated failed course (attempt count <code>&gt;= 2</code>).</p>
+          <p>3. If that free-retake course has attempts beyond 2, extra attempts are fee-applicable.</p>
+          <p>4. Other failed courses are fee-applicable as per current logic.</p>
+          <p><strong>Fee Rate</strong>: <code>15000</code> per payable course/attempt + <code>18%</code> GST.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs" type="module"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script type="module">
+    import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs";
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs";
+
+    const fileInput = document.getElementById("pdfFile");
+    const processBtn = document.getElementById("processBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const studentFilterEl = document.getElementById("studentFilter");
+    const searchStudentIdEl = document.getElementById("searchStudentId");
+    const searchCourseCodeEl = document.getElementById("searchCourseCode");
+    const applySearchBtn = document.getElementById("applySearchBtn");
+    const clearSearchBtn = document.getElementById("clearSearchBtn");
+    const statusEl = document.getElementById("status");
+    const courseTable = document.getElementById("courseTable");
+    const summaryTable = document.getElementById("summaryTable");
+    const feeTable = document.getElementById("feeTable");
+    const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
+    const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
+
+    const FEE_PER_COURSE = 15000;
+    const GST_RATE = 0.18;
+
+    let consolidatedRows = [];
+    let studentSummaryRows = [];
+    let feeApplicableRows = [];
+    let allCourseRows = [];
+    let allStudentSummaryRows = [];
+    let allFeeApplicableRows = [];
+
+    const sortState = {
+      course: { key: null, dir: "asc" },
+      summary: { key: null, dir: "asc" },
+      fee: { key: null, dir: "asc" }
+    };
+
+    const setStatus = (msg, type = "ok") => {
+      statusEl.textContent = msg;
+      statusEl.className = `status ${type}`;
+    };
+
+    function normalizeSpaces(text) {
+      return text.replace(/\s+/g, " ").trim();
+    }
+
+    function gradeToPoint(grade) {
+      const g = (grade || "").toUpperCase().replace(/\s+/g, "");
+      const points = {
+        "A+": 4.0, "A": 4.0, "A-": 3.7,
+        "B+": 3.3, "B": 3.0, "B-": 2.7,
+        "C+": 2.3, "C": 2.0, "C-": 1.7,
+        "D+": 1.3, "D": 1.0, "D-": 0.7,
+        "F": 0.0, "E": 0.0, "FF": 0.0, "U": 0.0
+      };
+      return Object.prototype.hasOwnProperty.call(points, g) ? points[g] : null;
+    }
+
+    function isFailGrade(grade) {
+      const g = (grade || "").trim();
+      if (!g) return true;
+      const p = gradeToPoint(g);
+      return p !== null ? p <= 1.7 : false;
+    }
+
+    function blankLabel(value) {
+      const v = String(value ?? "").trim();
+      return v ? v : "Blank";
+    }
+
+    function sortedRows(rows, tableKey) {
+      const state = sortState[tableKey];
+      if (!state || !state.key) return rows;
+      const key = state.key;
+      const dir = state.dir === "desc" ? -1 : 1;
+      return [...rows].sort((a, b) => {
+        const av = a[key];
+        const bv = b[key];
+        const an = Number(av);
+        const bn = Number(bv);
+        if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * dir;
+        return String(av ?? "").localeCompare(String(bv ?? ""), undefined, { numeric: true }) * dir;
+      });
+    }
+
+    function renderTable(tableEl, rows, tableKey) {
+      const thead = tableEl.querySelector("thead");
+      const tbody = tableEl.querySelector("tbody");
+      thead.innerHTML = "";
+      tbody.innerHTML = "";
+
+      if (!rows.length) return;
+
+      const data = sortedRows(rows, tableKey);
+      const cols = Object.keys(rows[0]);
+      const trh = document.createElement("tr");
+      cols.forEach(c => {
+        const th = document.createElement("th");
+        const state = sortState[tableKey];
+        const arrow = state.key === c ? (state.dir === "asc" ? " ▲" : " ▼") : "";
+        th.textContent = `${c}${arrow}`;
+        th.classList.add("sortable");
+        th.addEventListener("click", () => {
+          if (state.key === c) {
+            state.dir = state.dir === "asc" ? "desc" : "asc";
+          } else {
+            state.key = c;
+            state.dir = "asc";
+          }
+          renderAllTables();
+        });
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+
+      data.forEach(r => {
+        const tr = document.createElement("tr");
+        cols.forEach(c => {
+          const td = document.createElement("td");
+          td.textContent = r[c];
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderAllTables() {
+      renderTable(courseTable, consolidatedRows, "course");
+      renderTable(summaryTable, studentSummaryRows, "summary");
+      renderTable(feeTable, feeApplicableRows, "fee");
+    }
+
+    function activateTab(panelId) {
+      tabButtons.forEach(btn => {
+        const active = btn.dataset.tab === panelId;
+        btn.classList.toggle("active", active);
+      });
+      tabPanels.forEach(panel => {
+        panel.classList.toggle("active", panel.id === panelId);
+      });
+    }
+
+    function applyPostSearch() {
+      const idQ = normalizeSpaces(searchStudentIdEl.value).toUpperCase();
+      const courseQ = normalizeSpaces(searchCourseCodeEl.value).toUpperCase();
+
+      if (!idQ && !courseQ) {
+        consolidatedRows = [...allCourseRows];
+        studentSummaryRows = [...allStudentSummaryRows];
+        feeApplicableRows = [...allFeeApplicableRows];
+      } else {
+        consolidatedRows = allCourseRows.filter(r => {
+          const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
+          const okCourse = !courseQ || String(r["Course Code"] || "").toUpperCase().includes(courseQ);
+          return okId && okCourse;
+        });
+
+        const visibleStudentIds = new Set(consolidatedRows.map(r => String(r["Unique Id"] || "").toUpperCase()));
+        studentSummaryRows = allStudentSummaryRows.filter(r =>
+          visibleStudentIds.has(String(r["Unique Id"] || "").toUpperCase())
+        );
+
+        feeApplicableRows = allFeeApplicableRows.filter(r => {
+          const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
+          const okCourse = !courseQ || String(r["Course Code"] || "").toUpperCase().includes(courseQ);
+          return okId && okCourse;
+        });
+      }
+      renderAllTables();
+    }
+
+    function parseStudentPage(lines, rawText) {
+      const mergedText = normalizeSpaces(`${rawText || ""} ${lines.join(" ")}`);
+      let summaryMatch = null;
+
+      // Header labels may be absent or broken across text items. Infer by value order.
+      const summaryRegex =
+        /(B\d{6,})\s+(.+?)\s+([0-4](?:\.\d+)?)\s+(\d{1,3})\s+(\d{1,3})(?:\s*GPA:)?/i;
+
+      for (const rawLine of lines) {
+        const line = normalizeSpaces(rawLine);
+        if (!/^B\d{6,}\b/i.test(line)) continue;
+        const m = line.match(summaryRegex);
+        if (m) {
+          summaryMatch = m;
+          break;
+        }
+      }
+
+      if (!summaryMatch) {
+        summaryMatch = mergedText.match(summaryRegex);
+      }
+      if (!summaryMatch) return [];
+
+      const uniqueId = summaryMatch[1];
+      const name = normalizeSpaces(summaryMatch[2]);
+      const overallGpa = Number(summaryMatch[3]);
+      const totalHoursPassed = Number(summaryMatch[4]);
+      const totalHoursAttempted = Number(summaryMatch[5]);
+
+      const courseRegex = /^(\d{6})\s+([A-Z]\d+)\s+([A-Z]{3,5}\d{3})(?:\s+([A-Z]{1,2}[+-]?))?$/i;
+      const rows = [];
+
+      for (const line of lines) {
+        const m = normalizeSpaces(line).match(courseRegex);
+        if (!m) continue;
+        rows.push({
+          "Unique Id": uniqueId,
+          "Name": name,
+          "Overall GPA": overallGpa,
+          "Total Hours Passed": totalHoursPassed,
+          "Total Hours Attempted": totalHoursAttempted,
+          "Batch Number": m[1],
+          "L Level": m[2].toUpperCase(),
+          "Course Code": m[3].toUpperCase(),
+          "Grade": blankLabel((m[4] || "").toUpperCase())
+        });
+      }
+
+      // Fallback: scan merged page text for course rows when line reconstruction is imperfect.
+      if (!rows.length) {
+        const re = /(\d{6})\s+([A-Z]\d+)\s+([A-Z]{3,5}\d{3})(?:\s+([A-Z]{1,2}[+-]?))?/gi;
+        let m;
+        while ((m = re.exec(mergedText)) !== null) {
+          rows.push({
+            "Unique Id": uniqueId,
+            "Name": name,
+            "Overall GPA": overallGpa,
+            "Total Hours Passed": totalHoursPassed,
+            "Total Hours Attempted": totalHoursAttempted,
+            "Batch Number": m[1],
+            "L Level": m[2].toUpperCase(),
+            "Course Code": m[3].toUpperCase(),
+            "Grade": blankLabel((m[4] || "").toUpperCase())
+          });
+        }
+      }
+
+      return rows;
+    }
+
+    function textItemsToLines(items) {
+      const byY = new Map();
+      for (const item of items) {
+        const raw = item.str || "";
+        const str = raw.trim();
+        if (!str) continue;
+        const x = item.transform?.[4] ?? 0;
+        const y = Math.round(item.transform?.[5] ?? 0);
+        if (!byY.has(y)) byY.set(y, []);
+        byY.get(y).push({ x, str });
+      }
+
+      const ys = Array.from(byY.keys()).sort((a, b) => b - a);
+      const lines = [];
+      for (const y of ys) {
+        const parts = byY.get(y).sort((a, b) => a.x - b.x).map(p => p.str);
+        const line = normalizeSpaces(parts.join(" "));
+        if (line) lines.push(line);
+      }
+      return lines;
+    }
+
+    async function extractAndConsolidate(file) {
+      const data = new Uint8Array(await file.arrayBuffer());
+      const pdf = await pdfjsLib.getDocument({ data }).promise;
+      const rows = [];
+
+      for (let page = 1; page <= pdf.numPages; page += 1) {
+        const p = await pdf.getPage(page);
+        const content = await p.getTextContent();
+        const lines = textItemsToLines(content.items);
+        const rawText = content.items.map(i => i.str || "").join(" ");
+        const pageRows = parseStudentPage(lines, rawText);
+        rows.push(...pageRows);
+      }
+
+      const seen = new Set();
+      const deduped = [];
+      for (const row of rows) {
+        const key = [
+          row["Unique Id"],
+          row["Batch Number"],
+          row["L Level"],
+          row["Course Code"],
+          row["Grade"]
+        ].join("::");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(row);
+      }
+
+      return deduped;
+    }
+
+    async function extractFromFiles(files) {
+      const allRows = [];
+      for (const file of files) {
+        const rows = await extractAndConsolidate(file);
+        allRows.push(...rows);
+      }
+
+      const seen = new Set();
+      const deduped = [];
+      for (const row of allRows) {
+        const key = [
+          row["Unique Id"],
+          row["Batch Number"],
+          row["L Level"],
+          row["Course Code"],
+          row["Grade"]
+        ].join("::");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(row);
+      }
+      return deduped;
+    }
+
+    function buildCourseAttemptRows(rows, filterStudentId) {
+      const normalizedFilter = (filterStudentId || "").trim().toUpperCase();
+      const source = normalizedFilter
+        ? rows.filter(r => String(r["Unique Id"] || "").toUpperCase() === normalizedFilter)
+        : rows;
+
+      const map = new Map();
+      for (const r of source) {
+        const sid = r["Unique Id"];
+        const course = r["Course Code"];
+        const key = `${sid}::${course}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            sid,
+            name: r["Name"],
+            gpa: r["Overall GPA"],
+            passed: r["Total Hours Passed"],
+            attempted: r["Total Hours Attempted"],
+            course,
+            attemptCount: 0,
+            failedAttempts: 0,
+            allGrades: [],
+            latestGrade: ""
+          });
+        }
+        const x = map.get(key);
+        const grade = blankLabel(r["Grade"]);
+        x.attemptCount += 1;
+        x.failedAttempts += isFailGrade(grade === "Blank" ? "" : grade) ? 1 : 0;
+        x.allGrades.push(blankLabel(grade));
+        x.latestGrade = grade;
+      }
+
+      return Array.from(map.values()).map(x => ({
+        "Unique Id": x.sid,
+        "Name": x.name,
+        "Overall GPA": x.gpa,
+        "Total Hours Passed": x.passed,
+        "Total Hours Attempted": x.attempted,
+        "Course Code": x.course,
+        "Attempt Count": x.attemptCount,
+        "Retake Fee Applicable": x.attemptCount > 2 ? "Yes" : "No",
+        "Failed Attempts": x.failedAttempts,
+        "Failed Course": x.failedAttempts > 0 ? "Yes" : "No",
+        "Latest Grade": blankLabel(x.latestGrade),
+        "All Grades": x.allGrades.join(", ")
+      }));
+    }
+
+    function buildStudentSummary(courseRows, feeRows) {
+      const map = new Map();
+      for (const r of courseRows) {
+        const sid = r["Unique Id"];
+        if (!map.has(sid)) {
+          map.set(sid, {
+            sid,
+            name: r["Name"],
+            gpa: r["Overall GPA"],
+            totalCourses: 0,
+            failedCourses: 0,
+            totalFailedAttempts: 0,
+            retakeFeeCourses: 0,
+            freeRetakeCourses: 0,
+            payableCourses: 0,
+            freeRetakeConsumed: "No"
+          });
+        }
+        const s = map.get(sid);
+        s.totalCourses += 1;
+        if (r["Failed Course"] === "Yes") s.failedCourses += 1;
+        s.totalFailedAttempts += Number(r["Failed Attempts"] || 0);
+        if (r["Retake Fee Applicable"] === "Yes") s.retakeFeeCourses += 1;
+      }
+
+      const feeByStudent = new Map();
+      for (const r of feeRows) {
+        const sid = r["Unique Id"];
+        if (!feeByStudent.has(sid)) feeByStudent.set(sid, []);
+        feeByStudent.get(sid).push(r);
+      }
+
+      return Array.from(map.values()).map(s => {
+        const studentFeeRows = feeByStudent.get(s.sid) || [];
+        const freeUsed = studentFeeRows.some(x => x["Free Retake"] === "Yes");
+        s.freeRetakeConsumed = freeUsed ? "Yes" : "No";
+        s.freeRetakeCourses = freeUsed ? 1 : 0;
+        s.payableCourses = studentFeeRows.filter(x => x["Fee Applicable"] === "Yes").length;
+        return {
+          "Unique Id": s.sid,
+          "Name": s.name,
+          "Overall GPA": s.gpa,
+          "Total Courses": s.totalCourses,
+          "Failed Courses": s.failedCourses,
+          "Free Retake Consumed": s.freeRetakeConsumed,
+          "Free Retake Courses": s.freeRetakeCourses,
+          "Payable Failed Courses": s.payableCourses,
+          "Failed Attempts": s.totalFailedAttempts,
+          "Courses with Retake Fee": s.retakeFeeCourses,
+          "Fee Per Payable Course (Excl GST)": FEE_PER_COURSE,
+          "Estimated Fee (Excl GST)": s.payableCourses * FEE_PER_COURSE,
+          "GST Rate": "18%",
+          "Estimated GST Amount": Number((s.payableCourses * FEE_PER_COURSE * GST_RATE).toFixed(2)),
+          "Estimated Fee (Incl GST)": Number((s.payableCourses * FEE_PER_COURSE * (1 + GST_RATE)).toFixed(2))
+        };
+      });
+    }
+
+    function buildFeeApplicableCourses(courseRows) {
+      const byStudent = new Map();
+      for (const r of courseRows) {
+        if (r["Failed Course"] !== "Yes") continue;
+        const sid = r["Unique Id"];
+        if (!byStudent.has(sid)) byStudent.set(sid, []);
+        byStudent.get(sid).push(r);
+      }
+
+      const feeRows = [];
+      for (const [sid, rows] of byStudent.entries()) {
+        const sorted = [...rows].sort((a, b) => {
+          const fa = Number(b["Failed Attempts"] || 0) - Number(a["Failed Attempts"] || 0);
+          if (fa !== 0) return fa;
+          const aa = Number(b["Attempt Count"] || 0) - Number(a["Attempt Count"] || 0);
+          if (aa !== 0) return aa;
+          return String(a["Course Code"]).localeCompare(String(b["Course Code"]));
+        });
+
+        // Free retake should be consumed by a repeated failed course first.
+        const freeCandidate = sorted.find(r => Number(r["Attempt Count"] || 0) >= 2) || null;
+        const freeCourseCode = freeCandidate ? freeCandidate["Course Code"] : "";
+
+        sorted.forEach(r => {
+          const attemptCount = Number(r["Attempt Count"] || 0);
+          const isFreeCourse = freeCourseCode && r["Course Code"] === freeCourseCode;
+          const isFree = isFreeCourse && attemptCount <= 2;
+          const payableAttempts = isFreeCourse ? Math.max(attemptCount - 2, 0) : 1;
+          const feeApplicable = isFree ? "No" : "Yes";
+          const amountExcl = feeApplicable === "Yes" ? payableAttempts * FEE_PER_COURSE : 0;
+          const gstAmount = feeApplicable === "Yes" ? Number((amountExcl * GST_RATE).toFixed(2)) : 0;
+          const amountIncl = feeApplicable === "Yes" ? Number((amountExcl + gstAmount).toFixed(2)) : 0;
+
+          feeRows.push({
+            "Unique Id": sid,
+            "Name": r["Name"],
+            "Course Code": r["Course Code"],
+            "Attempt Count": attemptCount,
+            "Latest Grade": r["Latest Grade"],
+            "Failed Attempts": r["Failed Attempts"],
+            "Free Retake": isFree ? "Yes" : "No",
+            "Fee Applicable": feeApplicable,
+            "Amount (Excl GST)": amountExcl,
+            "GST Rate": feeApplicable === "Yes" ? "18%" : "Blank",
+            "GST Amount": gstAmount,
+            "Amount (Incl GST)": amountIncl
+          });
+        });
+      }
+      return feeRows;
+    }
+
+    processBtn.addEventListener("click", async () => {
+      const files = Array.from(fileInput.files || []);
+      if (!files.length) {
+        setStatus("Please choose at least one PDF file.", "warn");
+        return;
+      }
+
+      downloadBtn.disabled = true;
+      applySearchBtn.disabled = true;
+      clearSearchBtn.disabled = true;
+      consolidatedRows = [];
+      studentSummaryRows = [];
+      feeApplicableRows = [];
+      allCourseRows = [];
+      allStudentSummaryRows = [];
+      allFeeApplicableRows = [];
+      renderTable(courseTable, [], "course");
+      renderTable(summaryTable, [], "summary");
+      renderTable(feeTable, [], "fee");
+      setStatus(`Reading ${files.length} PDF file(s) and extracting student/course rows...`, "ok");
+
+      try {
+        const rows = await extractFromFiles(files);
+        if (!rows.length) {
+          setStatus(
+            "No rows matched. Please share one page if your PDF format is different.",
+            "warn"
+          );
+          return;
+        }
+
+        const studentIdFilter = studentFilterEl.value || "";
+        consolidatedRows = buildCourseAttemptRows(rows, studentIdFilter);
+        const feeAllRows = buildFeeApplicableCourses(consolidatedRows);
+        feeApplicableRows = feeAllRows.filter(x => x["Fee Applicable"] === "Yes");
+        studentSummaryRows = buildStudentSummary(consolidatedRows, feeAllRows);
+        allCourseRows = [...consolidatedRows];
+        allStudentSummaryRows = [...studentSummaryRows];
+        allFeeApplicableRows = [...feeApplicableRows];
+        if (!consolidatedRows.length) {
+          setStatus("No rows found for the entered Student ID.", "warn");
+          return;
+        }
+
+        renderAllTables();
+        downloadBtn.disabled = false;
+        applySearchBtn.disabled = false;
+        clearSearchBtn.disabled = false;
+
+        const summary = studentSummaryRows[0];
+        const extra = studentSummaryRows.length === 1
+          ? ` | Failed courses: ${summary["Failed Courses"]}, Payable failed courses: ${summary["Payable Failed Courses"]}`
+          : "";
+        setStatus(
+          `Done. Processed ${files.length} PDF(s). Built ${consolidatedRows.length} course-attempt rows for ${studentSummaryRows.length} student(s). Fee rows: ${feeApplicableRows.length}.${extra}`,
+          "ok"
+        );
+      } catch (err) {
+        console.error(err);
+        setStatus(`Error: ${err.message}`, "warn");
+      }
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      if (!consolidatedRows.length) {
+        setStatus("No consolidated data to export.", "warn");
+        return;
+      }
+
+      const ws = XLSX.utils.json_to_sheet(consolidatedRows);
+      const ws2 = XLSX.utils.json_to_sheet(studentSummaryRows);
+      const ws3 = XLSX.utils.json_to_sheet(feeApplicableRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Course Attempts");
+      XLSX.utils.book_append_sheet(wb, ws2, "Student Summary");
+      XLSX.utils.book_append_sheet(wb, ws3, "Fee Applicable Courses");
+      XLSX.writeFile(wb, "GPA_Consolidated.xlsx");
+      setStatus("Excel file downloaded successfully.", "ok");
+    });
+
+    applySearchBtn.addEventListener("click", () => {
+      applyPostSearch();
+      setStatus(
+        `Search applied. Showing ${consolidatedRows.length} course rows, ${studentSummaryRows.length} student summaries, ${feeApplicableRows.length} fee rows.`,
+        "ok"
+      );
+    });
+
+    clearSearchBtn.addEventListener("click", () => {
+      searchStudentIdEl.value = "";
+      searchCourseCodeEl.value = "";
+      applyPostSearch();
+      setStatus("Search cleared.", "ok");
+    });
+
+    searchStudentIdEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !applySearchBtn.disabled) {
+        applySearchBtn.click();
+      }
+    });
+
+    searchCourseCodeEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !applySearchBtn.disabled) {
+        applySearchBtn.click();
+      }
+    });
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+    });
+  </script>
+</body>
+</html>
