@@ -288,13 +288,12 @@
           <h3>Policy Used for This Report</h3>
           <p><strong>Failure Rule</strong></p>
           <p>1. A course attempt is treated as failed when grade is <code>Blank</code> or grade is <code>C-</code> and below (<code>D+</code>, <code>D</code>, <code>D-</code>, <code>F</code>, etc.).</p>
-          <p>2. A course is marked failed for a student if any attempt of that course is failed.</p>
+          <p>2. A course is treated as currently failed only when the latest attempt is failed.</p>
           <p><strong>Retake Fee Rule</strong></p>
           <p>1. Attempt count is the number of times the same <code>Course Code</code> appears for a student.</p>
-          <p>2. One free retake is consumed first on a repeated failed course (attempt count <code>&gt;= 2</code>).</p>
-          <p>3. If that free-retake course has attempts beyond 2, extra attempts are fee-applicable.</p>
-          <p>4. Other failed courses are fee-applicable as per current logic.</p>
-          <p><strong>Fee Rate</strong>: <code>15000</code> per payable course/attempt + <code>18%</code> GST.</p>
+          <p>2. Retake attempts start from attempt #2 for a course.</p>
+          <p>3. One free retake is available once per student and batch.</p>
+          <p>4. If that free retake is already consumed, all failed courses are fee-applicable for next retake at <code>15000 + 18% GST</code> per course.</p>
         </div>
       </div>
     </div>
@@ -370,6 +369,16 @@
     function blankLabel(value) {
       const v = String(value ?? "").trim();
       return v ? v : "Blank";
+    }
+
+    function getTermSortValue(termBatchNumber) {
+      const n = Number(String(termBatchNumber || "").replace(/[^\d]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function getLevelSortValue(level) {
+      const n = Number(String(level || "").replace(/[^\d]/g, ""));
+      return Number.isFinite(n) ? n : 0;
     }
 
     function sortedRows(rows, tableKey) {
@@ -657,16 +666,31 @@
             failedAttempts: 0,
             allGrades: [],
             latestGrade: "",
-            termBatchNumbers: new Set()
+            termBatchNumbers: new Set(),
+            latestTermSort: -1,
+            latestLevelSort: -1,
+            latestSeq: -1
           });
         }
         const x = map.get(key);
         const grade = blankLabel(r["Grade"]);
+        const termSort = getTermSortValue(r["Term Batch Number"]);
+        const levelSort = getLevelSortValue(r["L Level"]);
         x.attemptCount += 1;
         x.failedAttempts += isFailGrade(grade === "Blank" ? "" : grade) ? 1 : 0;
         x.allGrades.push(blankLabel(grade));
-        x.latestGrade = grade;
         x.termBatchNumbers.add(blankLabel(r["Term Batch Number"]));
+
+        const isLater =
+          termSort > x.latestTermSort ||
+          (termSort === x.latestTermSort && levelSort > x.latestLevelSort) ||
+          (termSort === x.latestTermSort && levelSort === x.latestLevelSort && x.attemptCount > x.latestSeq);
+        if (isLater) {
+          x.latestGrade = grade;
+          x.latestTermSort = termSort;
+          x.latestLevelSort = levelSort;
+          x.latestSeq = x.attemptCount;
+        }
       }
 
       return Array.from(map.values()).map(x => ({
@@ -679,12 +703,26 @@
         "Term Batch Number": Array.from(x.termBatchNumbers).join(", "),
         "Course Code": x.course,
         "Attempt Count": x.attemptCount,
-        "Retake Fee Applicable": x.attemptCount > 2 ? "Yes" : "No",
+        "Retake Attempts": Math.max(x.attemptCount - 1, 0),
+        "Retake Fee Applicable": "No",
         "Failed Attempts": x.failedAttempts,
-        "Failed Course": x.failedAttempts > 0 ? "Yes" : "No",
+        "Failed Course": isFailGrade(x.latestGrade === "Blank" ? "" : x.latestGrade) ? "Yes" : "No",
         "Latest Grade": blankLabel(x.latestGrade),
         "All Grades": x.allGrades.join(", ")
       }));
+    }
+
+    function applyFeeFlagToCourseAttempts(courseRows, feeRows) {
+      const feeMap = new Map();
+      for (const r of feeRows) {
+        const key = `${r["Unique Id"]}::${r["Batch Number"]}::${r["Course Code"]}`;
+        const yes = r["Fee Applicable"] === "Yes";
+        feeMap.set(key, (feeMap.get(key) || false) || yes);
+      }
+      for (const r of courseRows) {
+        const key = `${r["Unique Id"]}::${r["Batch Number"]}::${r["Course Code"]}`;
+        r["Retake Fee Applicable"] = feeMap.get(key) ? "Yes" : "No";
+      }
     }
 
     function buildStudentSummary(courseRows, feeRows) {
@@ -712,7 +750,7 @@
         s.totalCourses += 1;
         if (r["Failed Course"] === "Yes") s.failedCourses += 1;
         s.totalFailedAttempts += Number(r["Failed Attempts"] || 0);
-        if (r["Retake Fee Applicable"] === "Yes") s.retakeFeeCourses += 1;
+        if (Number(r["Retake Attempts"] || 0) > 0) s.retakeFeeCourses += 1;
       }
 
       const feeByStudent = new Map();
@@ -723,13 +761,22 @@
         feeByStudent.get(key).push(r);
       }
 
+      const courseByStudent = new Map();
+      for (const r of courseRows) {
+        const sid = r["Unique Id"];
+        const key = `${sid}::${r["Batch Number"]}`;
+        if (!courseByStudent.has(key)) courseByStudent.set(key, []);
+        courseByStudent.get(key).push(r);
+      }
+
       return Array.from(map.values()).map(s => {
         const key = `${s.sid}::${s.batchNumber}`;
         const studentFeeRows = feeByStudent.get(key) || [];
-        const freeUsed = studentFeeRows.some(x => x["Free Retake"] === "Yes");
+        const studentCourseRows = courseByStudent.get(key) || [];
+        const freeUsed = studentCourseRows.some(x => Number(x["Attempt Count"] || 0) > 1);
         s.freeRetakeConsumed = freeUsed ? "Yes" : "No";
         s.freeRetakeCourses = freeUsed ? 1 : 0;
-        s.payableCourses = studentFeeRows.filter(x => x["Fee Applicable"] === "Yes").length;
+        s.payableCourses = studentFeeRows.reduce((acc, x) => acc + Number(x["Payable Retake Attempts"] || 0), 0);
         return {
           "Unique Id": s.sid,
           "Batch Number": s.batchNumber,
@@ -738,10 +785,10 @@
           "Total Courses": s.totalCourses,
           "Failed Courses": s.failedCourses,
           "Free Retake Consumed": s.freeRetakeConsumed,
-          "Free Retake Courses": s.freeRetakeCourses,
-          "Payable Failed Courses": s.payableCourses,
+          "Free Retake Attempts": s.freeRetakeCourses,
+          "Payable Retake Attempts": s.payableCourses,
           "Failed Attempts": s.totalFailedAttempts,
-          "Courses with Retake Fee": s.retakeFeeCourses,
+          "Courses with Retake Attempts": s.retakeFeeCourses,
           "Fee Per Payable Course (Excl GST)": FEE_PER_COURSE,
           "Estimated Fee (Excl GST)": s.payableCourses * FEE_PER_COURSE,
           "GST Rate": "18%",
@@ -751,10 +798,14 @@
       });
     }
 
-    function buildFeeApplicableCourses(courseRows) {
+    function buildFeeApplicableCourses(courseRows, filterStudentId) {
+      const normalizedFilter = (filterStudentId || "").trim().toUpperCase();
+      const source = normalizedFilter
+        ? courseRows.filter(r => String(r["Unique Id"] || "").toUpperCase() === normalizedFilter)
+        : courseRows;
+
       const byStudent = new Map();
-      for (const r of courseRows) {
-        if (r["Failed Course"] !== "Yes") continue;
+      for (const r of source) {
         const sid = r["Unique Id"];
         const key = `${sid}::${r["Batch Number"]}`;
         if (!byStudent.has(key)) byStudent.set(key, []);
@@ -764,44 +815,46 @@
       const feeRows = [];
       for (const [studentKey, rows] of byStudent.entries()) {
         const [sid, batchNumber] = studentKey.split("::");
-        const sorted = [...rows].sort((a, b) => {
-          const fa = Number(b["Failed Attempts"] || 0) - Number(a["Failed Attempts"] || 0);
-          if (fa !== 0) return fa;
-          const aa = Number(b["Attempt Count"] || 0) - Number(a["Attempt Count"] || 0);
-          if (aa !== 0) return aa;
-          return String(a["Course Code"]).localeCompare(String(b["Course Code"]));
-        });
+        const failedRows = rows.filter(r => r["Failed Course"] === "Yes");
+        if (!failedRows.length) continue;
 
-        // Free retake should be consumed by a repeated failed course first.
-        const freeCandidate = sorted.find(r => Number(r["Attempt Count"] || 0) >= 2) || null;
-        const freeCourseCode = freeCandidate ? freeCandidate["Course Code"] : "";
+        const freeConsumed = rows.some(r => Number(r["Attempt Count"] || 0) > 1);
 
-        sorted.forEach(r => {
-          const attemptCount = Number(r["Attempt Count"] || 0);
-          const isFreeCourse = freeCourseCode && r["Course Code"] === freeCourseCode;
-          const isFree = isFreeCourse && attemptCount <= 2;
-          const payableAttempts = isFreeCourse ? Math.max(attemptCount - 2, 0) : 1;
-          const feeApplicable = isFree ? "No" : "Yes";
-          const amountExcl = feeApplicable === "Yes" ? payableAttempts * FEE_PER_COURSE : 0;
-          const gstAmount = feeApplicable === "Yes" ? Number((amountExcl * GST_RATE).toFixed(2)) : 0;
-          const amountIncl = feeApplicable === "Yes" ? Number((amountExcl + gstAmount).toFixed(2)) : 0;
+        let freeCourseCode = "";
+        if (!freeConsumed) {
+          const sortedFailed = [...failedRows].sort((a, b) => {
+            const aa = Number(b["Attempt Count"] || 0) - Number(a["Attempt Count"] || 0);
+            if (aa !== 0) return aa;
+            return String(a["Course Code"] || "").localeCompare(String(b["Course Code"] || ""));
+          });
+          freeCourseCode = sortedFailed[0]?.["Course Code"] || "";
+        }
+
+        for (const r of failedRows) {
+          const isFree = !freeConsumed && freeCourseCode && r["Course Code"] === freeCourseCode;
+          const payableRetakeAttempts = isFree ? 0 : 1;
+          const amountExcl = payableRetakeAttempts * FEE_PER_COURSE;
+          const gstAmount = Number((amountExcl * GST_RATE).toFixed(2));
+          const amountIncl = Number((amountExcl + gstAmount).toFixed(2));
 
           feeRows.push({
             "Unique Id": sid,
             "Batch Number": batchNumber,
             "Name": r["Name"],
             "Course Code": r["Course Code"],
-            "Attempt Count": attemptCount,
-            "Latest Grade": r["Latest Grade"],
+            "Attempt Count": r["Attempt Count"],
             "Failed Attempts": r["Failed Attempts"],
-            "Free Retake": isFree ? "Yes" : "No",
-            "Fee Applicable": feeApplicable,
+            "Latest Grade": r["Latest Grade"],
+            "Retake Attempts": Number(r["Retake Attempts"] || 0),
+            "Free Retake Attempts": isFree ? 1 : 0,
+            "Payable Retake Attempts": payableRetakeAttempts,
+            "Fee Applicable": payableRetakeAttempts > 0 ? "Yes" : "No",
             "Amount (Excl GST)": amountExcl,
-            "GST Rate": feeApplicable === "Yes" ? "18%" : "Blank",
+            "GST Rate": payableRetakeAttempts > 0 ? "18%" : "Blank",
             "GST Amount": gstAmount,
             "Amount (Incl GST)": amountIncl
           });
-        });
+        }
       }
       return feeRows;
     }
@@ -839,7 +892,8 @@
 
         const studentIdFilter = studentFilterEl.value || "";
         consolidatedRows = buildCourseAttemptRows(rows, studentIdFilter);
-        const feeAllRows = buildFeeApplicableCourses(consolidatedRows);
+        const feeAllRows = buildFeeApplicableCourses(consolidatedRows, studentIdFilter);
+        applyFeeFlagToCourseAttempts(consolidatedRows, feeAllRows);
         feeApplicableRows = feeAllRows.filter(x => x["Fee Applicable"] === "Yes");
         studentSummaryRows = buildStudentSummary(consolidatedRows, feeAllRows);
         allCourseRows = [...consolidatedRows];
@@ -857,7 +911,7 @@
 
         const summary = studentSummaryRows[0];
         const extra = studentSummaryRows.length === 1
-          ? ` | Failed courses: ${summary["Failed Courses"]}, Payable failed courses: ${summary["Payable Failed Courses"]}`
+          ? ` | Failed courses: ${summary["Failed Courses"]}, Payable retake attempts: ${summary["Payable Retake Attempts"]}`
           : "";
         setStatus(
           `Done. Processed ${files.length} PDF(s). Built ${consolidatedRows.length} course-attempt rows for ${studentSummaryRows.length} student(s). Fee rows: ${feeApplicableRows.length}.${extra}`,
