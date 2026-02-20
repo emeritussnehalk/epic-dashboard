@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -473,7 +473,7 @@
       renderAllTables();
     }
 
-    function parseStudentPage(lines, rawText) {
+    function parseStudentPage(lines, rawText, fileBatchNumber) {
       const mergedText = normalizeSpaces(`${rawText || ""} ${lines.join(" ")}`);
       let summaryMatch = null;
 
@@ -510,11 +510,12 @@
         if (!m) continue;
         rows.push({
           "Unique Id": uniqueId,
+          "Batch Number": fileBatchNumber,
           "Name": name,
           "Overall GPA": overallGpa,
           "Total Hours Passed": totalHoursPassed,
           "Total Hours Attempted": totalHoursAttempted,
-          "Batch Number": m[1],
+          "Term Batch Number": m[1],
           "L Level": m[2].toUpperCase(),
           "Course Code": m[3].toUpperCase(),
           "Grade": blankLabel((m[4] || "").toUpperCase())
@@ -528,11 +529,12 @@
         while ((m = re.exec(mergedText)) !== null) {
           rows.push({
             "Unique Id": uniqueId,
+            "Batch Number": fileBatchNumber,
             "Name": name,
             "Overall GPA": overallGpa,
             "Total Hours Passed": totalHoursPassed,
             "Total Hours Attempted": totalHoursAttempted,
-            "Batch Number": m[1],
+            "Term Batch Number": m[1],
             "L Level": m[2].toUpperCase(),
             "Course Code": m[3].toUpperCase(),
             "Grade": blankLabel((m[4] || "").toUpperCase())
@@ -565,17 +567,24 @@
       return lines;
     }
 
+    function getBatchNumberFromFileName(fileName) {
+      const name = String(fileName || "");
+      const m = name.match(/batch\s*[-_ ]?(\d+)/i);
+      return m ? `Batch ${m[1]}` : "Batch Unknown";
+    }
+
     async function extractAndConsolidate(file) {
       const data = new Uint8Array(await file.arrayBuffer());
       const pdf = await pdfjsLib.getDocument({ data }).promise;
       const rows = [];
+      const fileBatchNumber = getBatchNumberFromFileName(file.name);
 
       for (let page = 1; page <= pdf.numPages; page += 1) {
         const p = await pdf.getPage(page);
         const content = await p.getTextContent();
         const lines = textItemsToLines(content.items);
         const rawText = content.items.map(i => i.str || "").join(" ");
-        const pageRows = parseStudentPage(lines, rawText);
+        const pageRows = parseStudentPage(lines, rawText, fileBatchNumber);
         rows.push(...pageRows);
       }
 
@@ -585,6 +594,7 @@
         const key = [
           row["Unique Id"],
           row["Batch Number"],
+          row["Term Batch Number"],
           row["L Level"],
           row["Course Code"],
           row["Grade"]
@@ -610,6 +620,7 @@
         const key = [
           row["Unique Id"],
           row["Batch Number"],
+          row["Term Batch Number"],
           row["L Level"],
           row["Course Code"],
           row["Grade"]
@@ -630,11 +641,13 @@
       const map = new Map();
       for (const r of source) {
         const sid = r["Unique Id"];
+        const batchNumber = r["Batch Number"];
         const course = r["Course Code"];
-        const key = `${sid}::${course}`;
+        const key = `${sid}::${batchNumber}::${course}`;
         if (!map.has(key)) {
           map.set(key, {
             sid,
+            batchNumber,
             name: r["Name"],
             gpa: r["Overall GPA"],
             passed: r["Total Hours Passed"],
@@ -643,7 +656,8 @@
             attemptCount: 0,
             failedAttempts: 0,
             allGrades: [],
-            latestGrade: ""
+            latestGrade: "",
+            termBatchNumbers: new Set()
           });
         }
         const x = map.get(key);
@@ -652,14 +666,17 @@
         x.failedAttempts += isFailGrade(grade === "Blank" ? "" : grade) ? 1 : 0;
         x.allGrades.push(blankLabel(grade));
         x.latestGrade = grade;
+        x.termBatchNumbers.add(blankLabel(r["Term Batch Number"]));
       }
 
       return Array.from(map.values()).map(x => ({
         "Unique Id": x.sid,
+        "Batch Number": x.batchNumber,
         "Name": x.name,
         "Overall GPA": x.gpa,
         "Total Hours Passed": x.passed,
         "Total Hours Attempted": x.attempted,
+        "Term Batch Number": Array.from(x.termBatchNumbers).join(", "),
         "Course Code": x.course,
         "Attempt Count": x.attemptCount,
         "Retake Fee Applicable": x.attemptCount > 2 ? "Yes" : "No",
@@ -674,9 +691,12 @@
       const map = new Map();
       for (const r of courseRows) {
         const sid = r["Unique Id"];
-        if (!map.has(sid)) {
-          map.set(sid, {
+        const batchNumber = r["Batch Number"];
+        const key = `${sid}::${batchNumber}`;
+        if (!map.has(key)) {
+          map.set(key, {
             sid,
+            batchNumber,
             name: r["Name"],
             gpa: r["Overall GPA"],
             totalCourses: 0,
@@ -688,7 +708,7 @@
             freeRetakeConsumed: "No"
           });
         }
-        const s = map.get(sid);
+        const s = map.get(key);
         s.totalCourses += 1;
         if (r["Failed Course"] === "Yes") s.failedCourses += 1;
         s.totalFailedAttempts += Number(r["Failed Attempts"] || 0);
@@ -698,18 +718,21 @@
       const feeByStudent = new Map();
       for (const r of feeRows) {
         const sid = r["Unique Id"];
-        if (!feeByStudent.has(sid)) feeByStudent.set(sid, []);
-        feeByStudent.get(sid).push(r);
+        const key = `${sid}::${r["Batch Number"]}`;
+        if (!feeByStudent.has(key)) feeByStudent.set(key, []);
+        feeByStudent.get(key).push(r);
       }
 
       return Array.from(map.values()).map(s => {
-        const studentFeeRows = feeByStudent.get(s.sid) || [];
+        const key = `${s.sid}::${s.batchNumber}`;
+        const studentFeeRows = feeByStudent.get(key) || [];
         const freeUsed = studentFeeRows.some(x => x["Free Retake"] === "Yes");
         s.freeRetakeConsumed = freeUsed ? "Yes" : "No";
         s.freeRetakeCourses = freeUsed ? 1 : 0;
         s.payableCourses = studentFeeRows.filter(x => x["Fee Applicable"] === "Yes").length;
         return {
           "Unique Id": s.sid,
+          "Batch Number": s.batchNumber,
           "Name": s.name,
           "Overall GPA": s.gpa,
           "Total Courses": s.totalCourses,
@@ -733,12 +756,14 @@
       for (const r of courseRows) {
         if (r["Failed Course"] !== "Yes") continue;
         const sid = r["Unique Id"];
-        if (!byStudent.has(sid)) byStudent.set(sid, []);
-        byStudent.get(sid).push(r);
+        const key = `${sid}::${r["Batch Number"]}`;
+        if (!byStudent.has(key)) byStudent.set(key, []);
+        byStudent.get(key).push(r);
       }
 
       const feeRows = [];
-      for (const [sid, rows] of byStudent.entries()) {
+      for (const [studentKey, rows] of byStudent.entries()) {
+        const [sid, batchNumber] = studentKey.split("::");
         const sorted = [...rows].sort((a, b) => {
           const fa = Number(b["Failed Attempts"] || 0) - Number(a["Failed Attempts"] || 0);
           if (fa !== 0) return fa;
@@ -763,6 +788,7 @@
 
           feeRows.push({
             "Unique Id": sid,
+            "Batch Number": batchNumber,
             "Name": r["Name"],
             "Course Code": r["Course Code"],
             "Attempt Count": attemptCount,
