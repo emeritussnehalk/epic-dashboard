@@ -152,6 +152,11 @@
       text-align: left;
       vertical-align: top;
     }
+    tr.total-row td {
+      background: #e6f9ee;
+      font-weight: 700;
+      border-top: 2px solid #78c99a;
+    }
     th {
       background: #f2f4f7;
       position: sticky;
@@ -253,7 +258,9 @@
       <div class="tabs">
         <button id="tabSummary" class="tab-btn active" data-tab="summaryPanel">Student Summary</button>
         <button id="tabCourse" class="tab-btn" data-tab="coursePanel">Course Attempts</button>
+        <button id="tabFailed" class="tab-btn" data-tab="failedPanel">Failed Courses</button>
         <button id="tabFee" class="tab-btn" data-tab="feePanel">Fee Applicable Courses</button>
+        <button id="tabFeeSummary" class="tab-btn" data-tab="feeSummaryPanel">Fee Receivable Summary</button>
         <button id="tabPolicy" class="tab-btn" data-tab="policyPanel">Policy</button>
       </div>
       <div id="coursePanel" class="tab-panel">
@@ -274,10 +281,28 @@
           </table>
         </div>
       </div>
+      <div id="failedPanel" class="tab-panel">
+        <strong>Failed Courses</strong>
+        <div class="table-wrap">
+          <table id="failedTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
       <div id="feePanel" class="tab-panel">
         <strong>Fee Applicable Courses</strong>
         <div class="table-wrap">
           <table id="feeTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="feeSummaryPanel" class="tab-panel">
+        <strong>Fee Receivable Summary</strong>
+        <div class="table-wrap">
+          <table id="feeSummaryTable">
             <thead></thead>
             <tbody></tbody>
           </table>
@@ -318,7 +343,9 @@
     const statusEl = document.getElementById("status");
     const courseTable = document.getElementById("courseTable");
     const summaryTable = document.getElementById("summaryTable");
+    const failedTable = document.getElementById("failedTable");
     const feeTable = document.getElementById("feeTable");
+    const feeSummaryTable = document.getElementById("feeSummaryTable");
     const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
     const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
 
@@ -327,15 +354,21 @@
 
     let consolidatedRows = [];
     let studentSummaryRows = [];
+    let failedCourseRows = [];
     let feeApplicableRows = [];
+    let feeSummaryRows = [];
     let allCourseRows = [];
     let allStudentSummaryRows = [];
+    let allFailedCourseRows = [];
     let allFeeApplicableRows = [];
+    let allFeeSummaryRows = [];
 
     const sortState = {
       course: { key: null, dir: "asc" },
       summary: { key: null, dir: "asc" },
+      failed: { key: null, dir: "asc" },
       fee: { key: null, dir: "asc" }
+      , feeSummary: { key: null, dir: "asc" }
     };
 
     const setStatus = (msg, type = "ok") => {
@@ -386,7 +419,13 @@
       if (!state || !state.key) return rows;
       const key = state.key;
       const dir = state.dir === "desc" ? -1 : 1;
-      return [...rows].sort((a, b) => {
+      const working = [...rows];
+      let totalRow = null;
+      if (tableKey === "feeSummary") {
+        const idx = working.findIndex(r => String(r["Batch Number"] || "").toUpperCase() === "TOTAL");
+        if (idx >= 0) totalRow = working.splice(idx, 1)[0];
+      }
+      const sorted = working.sort((a, b) => {
         const av = a[key];
         const bv = b[key];
         const an = Number(av);
@@ -394,6 +433,8 @@
         if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * dir;
         return String(av ?? "").localeCompare(String(bv ?? ""), undefined, { numeric: true }) * dir;
       });
+      if (totalRow) sorted.push(totalRow);
+      return sorted;
     }
 
     function renderTable(tableEl, rows, tableKey) {
@@ -407,6 +448,9 @@
       const data = sortedRows(rows, tableKey);
       const cols = Object.keys(rows[0]);
       const trh = document.createElement("tr");
+      const srTh = document.createElement("th");
+      srTh.textContent = "Sr. No.";
+      trh.appendChild(srTh);
       cols.forEach(c => {
         const th = document.createElement("th");
         const state = sortState[tableKey];
@@ -426,8 +470,14 @@
       });
       thead.appendChild(trh);
 
-      data.forEach(r => {
+      data.forEach((r, idx) => {
         const tr = document.createElement("tr");
+        if (tableKey === "feeSummary" && String(r["Batch Number"] || "").toUpperCase() === "TOTAL") {
+          tr.classList.add("total-row");
+        }
+        const srTd = document.createElement("td");
+        srTd.textContent = String(idx + 1);
+        tr.appendChild(srTd);
         cols.forEach(c => {
           const td = document.createElement("td");
           td.textContent = r[c];
@@ -440,7 +490,9 @@
     function renderAllTables() {
       renderTable(courseTable, consolidatedRows, "course");
       renderTable(summaryTable, studentSummaryRows, "summary");
+      renderTable(failedTable, failedCourseRows, "failed");
       renderTable(feeTable, feeApplicableRows, "fee");
+      renderTable(feeSummaryTable, feeSummaryRows, "feeSummary");
     }
 
     function activateTab(panelId) {
@@ -460,7 +512,9 @@
       if (!idQ && !courseQ) {
         consolidatedRows = [...allCourseRows];
         studentSummaryRows = [...allStudentSummaryRows];
+        failedCourseRows = [...allFailedCourseRows];
         feeApplicableRows = [...allFeeApplicableRows];
+        feeSummaryRows = [...allFeeSummaryRows];
       } else {
         consolidatedRows = allCourseRows.filter(r => {
           const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
@@ -473,11 +527,18 @@
           visibleStudentIds.has(String(r["Unique Id"] || "").toUpperCase())
         );
 
+        failedCourseRows = allFailedCourseRows.filter(r => {
+          const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
+          const okCourse = !courseQ || String(r["Course Code"] || "").toUpperCase().includes(courseQ);
+          return okId && okCourse;
+        });
+
         feeApplicableRows = allFeeApplicableRows.filter(r => {
           const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
           const okCourse = !courseQ || String(r["Course Code"] || "").toUpperCase().includes(courseQ);
           return okId && okCourse;
         });
+        feeSummaryRows = buildFeeReceivableSummary(feeApplicableRows);
       }
       renderAllTables();
     }
@@ -725,6 +786,64 @@
       }
     }
 
+    function addSerialNumber(rows) {
+      return rows.map((r, idx) => ({ "Sr. No.": idx + 1, ...r }));
+    }
+
+    function buildFeeReceivableSummary(feeRows) {
+      const map = new Map();
+      for (const r of feeRows) {
+        const batch = r["Batch Number"] || "Batch Unknown";
+        if (!map.has(batch)) {
+          map.set(batch, {
+            batch,
+            students: new Set(),
+            payableAttempts: 0,
+            amountExcl: 0,
+            gstAmount: 0,
+            amountIncl: 0
+          });
+        }
+        const x = map.get(batch);
+        x.students.add(String(r["Unique Id"] || ""));
+        x.payableAttempts += Number(r["Payable Retake Attempts"] || 0);
+        x.amountExcl += Number(r["Amount (Excl GST)"] || 0);
+        x.gstAmount += Number(r["GST Amount"] || 0);
+        x.amountIncl += Number(r["Amount (Incl GST)"] || 0);
+      }
+
+      const rows = Array.from(map.values()).map(x => ({
+        "Batch Number": x.batch,
+        "No. of Students": x.students.size,
+        "Payable Retake Attempts": x.payableAttempts,
+        "Amount (Excl GST)": Number(x.amountExcl.toFixed(2)),
+        "GST Amount": Number(x.gstAmount.toFixed(2)),
+        "Amount (Incl GST)": Number(x.amountIncl.toFixed(2))
+      }));
+
+      const total = rows.reduce((acc, r) => {
+        acc["No. of Students"] += Number(r["No. of Students"] || 0);
+        acc["Payable Retake Attempts"] += Number(r["Payable Retake Attempts"] || 0);
+        acc["Amount (Excl GST)"] += Number(r["Amount (Excl GST)"] || 0);
+        acc["GST Amount"] += Number(r["GST Amount"] || 0);
+        acc["Amount (Incl GST)"] += Number(r["Amount (Incl GST)"] || 0);
+        return acc;
+      }, {
+        "Batch Number": "Total",
+        "No. of Students": 0,
+        "Payable Retake Attempts": 0,
+        "Amount (Excl GST)": 0,
+        "GST Amount": 0,
+        "Amount (Incl GST)": 0
+      });
+
+      total["Amount (Excl GST)"] = Number(total["Amount (Excl GST)"].toFixed(2));
+      total["GST Amount"] = Number(total["GST Amount"].toFixed(2));
+      total["Amount (Incl GST)"] = Number(total["Amount (Incl GST)"].toFixed(2));
+
+      return [...rows, total];
+    }
+
     function buildStudentSummary(courseRows, feeRows) {
       const map = new Map();
       for (const r of courseRows) {
@@ -871,13 +990,19 @@
       clearSearchBtn.disabled = true;
       consolidatedRows = [];
       studentSummaryRows = [];
+      failedCourseRows = [];
       feeApplicableRows = [];
+      feeSummaryRows = [];
       allCourseRows = [];
       allStudentSummaryRows = [];
+      allFailedCourseRows = [];
       allFeeApplicableRows = [];
+      allFeeSummaryRows = [];
       renderTable(courseTable, [], "course");
       renderTable(summaryTable, [], "summary");
+      renderTable(failedTable, [], "failed");
       renderTable(feeTable, [], "fee");
+      renderTable(feeSummaryTable, [], "feeSummary");
       setStatus(`Reading ${files.length} PDF file(s) and extracting student/course rows...`, "ok");
 
       try {
@@ -894,11 +1019,15 @@
         consolidatedRows = buildCourseAttemptRows(rows, studentIdFilter);
         const feeAllRows = buildFeeApplicableCourses(consolidatedRows, studentIdFilter);
         applyFeeFlagToCourseAttempts(consolidatedRows, feeAllRows);
+        failedCourseRows = consolidatedRows.filter(x => x["Failed Course"] === "Yes");
         feeApplicableRows = feeAllRows.filter(x => x["Fee Applicable"] === "Yes");
+        feeSummaryRows = buildFeeReceivableSummary(feeApplicableRows);
         studentSummaryRows = buildStudentSummary(consolidatedRows, feeAllRows);
         allCourseRows = [...consolidatedRows];
         allStudentSummaryRows = [...studentSummaryRows];
+        allFailedCourseRows = [...failedCourseRows];
         allFeeApplicableRows = [...feeApplicableRows];
+        allFeeSummaryRows = [...feeSummaryRows];
         if (!consolidatedRows.length) {
           setStatus("No rows found for the entered Student ID.", "warn");
           return;
@@ -929,13 +1058,17 @@
         return;
       }
 
-      const ws = XLSX.utils.json_to_sheet(consolidatedRows);
-      const ws2 = XLSX.utils.json_to_sheet(studentSummaryRows);
-      const ws3 = XLSX.utils.json_to_sheet(feeApplicableRows);
+      const ws = XLSX.utils.json_to_sheet(addSerialNumber(consolidatedRows));
+      const ws2 = XLSX.utils.json_to_sheet(addSerialNumber(studentSummaryRows));
+      const ws3 = XLSX.utils.json_to_sheet(addSerialNumber(feeApplicableRows));
+      const ws4 = XLSX.utils.json_to_sheet(addSerialNumber(failedCourseRows));
+      const ws5 = XLSX.utils.json_to_sheet(addSerialNumber(feeSummaryRows));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Course Attempts");
       XLSX.utils.book_append_sheet(wb, ws2, "Student Summary");
+      XLSX.utils.book_append_sheet(wb, ws4, "Failed Courses");
       XLSX.utils.book_append_sheet(wb, ws3, "Fee Applicable Courses");
+      XLSX.utils.book_append_sheet(wb, ws5, "Fee Receivable Summary");
       XLSX.writeFile(wb, "GPA_Consolidated.xlsx");
       setStatus("Excel file downloaded successfully.", "ok");
     });
