@@ -157,6 +157,10 @@
       font-weight: 700;
       border-top: 2px solid #78c99a;
     }
+    td.batch-mismatch {
+      color: #800020;
+      font-weight: 700;
+    }
     th {
       background: #f2f4f7;
       position: sticky;
@@ -234,7 +238,7 @@
         <input id="studentFilter" type="text" placeholder="Optional Student ID (e.g., B00781408)" />
         <button id="processBtn">Process PDF</button>
         <button id="downloadBtn" class="ghost" disabled>Download Excel</button>
-        <div class="file-hint">Instruction: Upload only GPA Report PDF file(s).</div>
+        <div class="file-hint">Instruction: Upload GPA report PDF(s). Actual batch number is mapped automatically from built-in UMass confirmed student data.</div>
       </div>
       <div id="status" class="status"></div>
       <div class="meta">
@@ -351,6 +355,333 @@
 
     const FEE_PER_COURSE = 15000;
     const GST_RATE = 0.18;
+    const HARDCODED_BATCH_MAPPING = {
+      "B00722885": "1",
+      "B00725472": "1",
+      "B00725858": "1",
+      "B00726642": "1",
+      "B00728572": "2",
+      "B00728573": "1",
+      "B00728574": "1",
+      "B00728576": "1",
+      "B00728577": "1",
+      "B00728578": "1",
+      "B00728579": "1",
+      "B00729158": "1",
+      "B00729659": "2",
+      "B00730576": "1",
+      "B00730578": "1",
+      "B00730581": "1",
+      "B00731276": "1",
+      "B00731287": "1",
+      "B00731288": "1",
+      "B00731290": "1",
+      "B00731291": "1",
+      "B00732217": "1",
+      "B00733620": "1",
+      "B00733623": "1",
+      "B00733782": "1",
+      "B00733783": "1",
+      "B00733784": "1",
+      "B00733785": "1",
+      "B00734063": "1",
+      "B00734064": "1",
+      "B00735030": "1",
+      "B00735311": "1",
+      "B00735775": "1",
+      "B00735776": "1",
+      "B00735777": "1",
+      "B00736277": "1",
+      "B00736422": "1",
+      "B00736733": "1",
+      "B00736734": "1",
+      "B00736831": "2",
+      "B00737303": "1",
+      "B00737583": "1",
+      "B00737584": "1",
+      "B00737585": "1",
+      "B00737587": "1",
+      "B00738068": "1",
+      "B00738570": "1",
+      "B00738884": "1",
+      "B00738885": "1",
+      "B00738886": "1",
+      "B00739605": "1",
+      "B00739606": "1",
+      "B00739607": "1",
+      "B00739916": "1",
+      "B00739917": "1",
+      "B00739918": "3",
+      "B00740137": "1",
+      "B00740138": "1",
+      "B00740139": "3",
+      "B00740683": "1",
+      "B00740841": "1",
+      "B00740936": "1",
+      "B00741117": "1",
+      "B00741239": "1",
+      "B00741240": "1",
+      "B00741452": "1",
+      "B00741581": "1",
+      "B00741884": "1",
+      "B00745714": "2",
+      "B00747334": "2",
+      "B00747336": "2",
+      "B00747465": "2",
+      "B00747866": "2",
+      "B00747887": "2",
+      "B00748003": "2",
+      "B00748005": "3",
+      "B00748006": "3",
+      "B00748306": "2",
+      "B00748307": "2",
+      "B00748308": "2",
+      "B00748467": "2",
+      "B00748916": "2",
+      "B00749269": "2",
+      "B00750142": "2",
+      "B00750229": "2",
+      "B00750230": "2",
+      "B00750614": "2",
+      "B00750914": "2",
+      "B00751200": "2",
+      "B00751201": "2",
+      "B00751453": "2",
+      "B00751454": "2",
+      "B00751455": "2",
+      "B00751457": "2",
+      "B00752443": "2",
+      "B00752444": "2",
+      "B00752468": "2",
+      "B00752472": "2",
+      "B00752473": "2",
+      "B00752476": "2",
+      "B00752628": "2",
+      "B00752786": "2",
+      "B00752787": "2",
+      "B00752788": "2",
+      "B00753640": "2",
+      "B00753736": "2",
+      "B00753737": "2",
+      "B00753840": "2",
+      "B00753841": "2",
+      "B00753842": "3",
+      "B00754023": "2",
+      "B00754024": "2",
+      "B00754025": "2",
+      "B00754773": "2",
+      "B00754774": "2",
+      "B00754983": "2",
+      "B00755023": "2",
+      "B00755343": "2",
+      "B00755775": "2",
+      "B00756316": "2",
+      "B00756317": "2",
+      "B00756320": "2",
+      "B00756321": "2",
+      "B00756322": "2",
+      "B00756323": "2",
+      "B00756325": "2",
+      "B00756817": "2",
+      "B00757070": "2",
+      "B00757071": "2",
+      "B00757073": "2",
+      "B00757074": "2",
+      "B00757154": "2",
+      "B00757155": "2",
+      "B00757290": "2",
+      "B00757291": "2",
+      "B00757519": "3",
+      "B00757525": "3",
+      "B00757748": "2",
+      "B00757749": "3",
+      "B00759718": "3",
+      "B00759984": "3",
+      "B00759985": "3",
+      "B00759986": "4",
+      "B00759987": "3",
+      "B00759988": "3",
+      "B00760300": "3",
+      "B00760456": "3",
+      "B00760600": "3",
+      "B00760601": "3",
+      "B00760603": "3",
+      "B00760604": "3",
+      "B00760607": "3",
+      "B00761056": "3",
+      "B00761133": "3",
+      "B00761178": "3",
+      "B00761234": "3",
+      "B00761332": "3",
+      "B00761559": "3",
+      "B00761747": "3",
+      "B00761748": "3",
+      "B00761749": "3",
+      "B00761750": "3",
+      "B00761752": "3",
+      "B00761754": "3",
+      "B00761755": "3",
+      "B00761756": "3",
+      "B00761810": "3",
+      "B00761819": "3",
+      "B00761869": "3",
+      "B00762012": "3",
+      "B00762186": "3",
+      "B00762535": "3",
+      "B00762673": "3",
+      "B00763021": "3",
+      "B00763022": "3",
+      "B00763024": "3",
+      "B00763226": "3",
+      "B00763227": "3",
+      "B00763231": "3",
+      "B00763878": "3",
+      "B00764053": "3",
+      "B00764163": "3",
+      "B00764318": "3",
+      "B00764478": "3",
+      "B00764667": "3",
+      "B00764668": "3",
+      "B00764777": "3",
+      "B00765067": "3",
+      "B00765068": "3",
+      "B00765070": "3",
+      "B00765331": "3",
+      "B00765332": "3",
+      "B00766174": "3",
+      "B00769457": "4",
+      "B00769458": "4",
+      "B00769461": "4",
+      "B00769885": "4",
+      "B00770204": "4",
+      "B00770990": "4",
+      "B00771200": "4",
+      "B00771201": "4",
+      "B00771390": "4",
+      "B00771597": "4",
+      "B00771701": "4",
+      "B00771702": "4",
+      "B00772126": "4",
+      "B00772487": "4",
+      "B00772488": "4",
+      "B00772615": "4",
+      "B00773195": "4",
+      "B00774036": "4",
+      "B00774037": "4",
+      "B00774038": "4",
+      "B00774143": "4",
+      "B00774144": "4",
+      "B00774244": "4",
+      "B00774422": "4",
+      "B00774646": "4",
+      "B00774647": "4",
+      "B00774648": "4",
+      "B00774649": "4",
+      "B00775244": "4",
+      "B00775245": "6",
+      "B00775445": "4",
+      "B00775446": "4",
+      "B00777450": "5",
+      "B00777638": "5",
+      "B00777639": "5",
+      "B00778408": "5",
+      "B00778547": "5",
+      "B00778876": "5",
+      "B00778986": "5",
+      "B00779159": "5",
+      "B00779279": "5",
+      "B00779710": "5",
+      "B00779711": "5",
+      "B00779836": "5",
+      "B00779837": "5",
+      "B00779838": "5",
+      "B00780047": "5",
+      "B00780048": "5",
+      "B00780050": "5",
+      "B00780109": "5",
+      "B00780111": "5",
+      "B00780112": "5",
+      "B00780410": "5",
+      "B00780657": "5",
+      "B00780901": "5",
+      "B00781064": "5",
+      "B00781065": "5",
+      "B00781175": "5",
+      "B00781308": "5",
+      "B00781309": "5",
+      "B00782225": "5",
+      "B00782226": "5",
+      "B00782227": "5",
+      "B00782632": "5",
+      "B00783035": "5",
+      "B00783348": "5",
+      "B00783442": "5",
+      "B00783443": "5",
+      "B00783692": "5",
+      "B00783786": "5",
+      "B00783787": "5",
+      "B00784038": "5",
+      "B00784156": "5",
+      "B00784335": "5",
+      "B00784336": "5",
+      "B00784338": "5",
+      "B00784340": "5",
+      "B00784341": "5",
+      "B00784432": "5",
+      "B00784727": "5",
+      "B00784728": "5",
+      "B00785804": "6",
+      "B00786384": "6",
+      "B00786385": "6",
+      "B00786834": "6",
+      "B00787099": "6",
+      "B00787335": "6",
+      "B00787998": "6",
+      "B00787999": "6",
+      "B00788003": "6",
+      "B00788546": "6",
+      "B00789439": "6",
+      "B00789440": "6",
+      "B00789441": "6",
+      "B00789442": "6",
+      "B00789443": "6",
+      "B00790525": "6",
+      "B00790526": "6",
+      "B00790685": "6",
+      "B00790846": "6",
+      "B00791342": "6",
+      "B00792504": "6",
+      "B00792505": "6",
+      "B00792506": "6",
+      "B00792636": "6",
+      "B00793453": "6",
+      "B00793454": "6",
+      "B00793455": "6",
+      "B00793456": "6",
+      "B00793457": "6",
+      "B00793458": "6",
+      "B00793739": "6",
+      "B00793741": "6",
+      "B00793742": "6",
+      "B00793743": "6",
+      "B00793858": "6",
+      "B00794020": "6",
+      "B00794021": "6",
+      "B00794022": "6",
+      "B00800692": "7",
+      "B00801484": "7",
+      "B00802477": "7",
+      "B00805683": "7",
+      "B00806510": "7",
+      "B00806511": "7",
+      "B00806515": "7",
+      "B00806969": "7",
+      "B00807353": "7",
+      "B00808207": "7",
+      "B00808208": "7",
+      "B00808779": "7",
+      "B00809243": "7"
+    };
 
     let consolidatedRows = [];
     let studentSummaryRows = [];
@@ -437,6 +768,14 @@
       return sorted;
     }
 
+    function normalizeBatchValue(value) {
+      return String(value || "")
+        .trim()
+        .toUpperCase()
+        .replace(/^BATCH\s+/, "")
+        .replace(/\s+/g, " ");
+    }
+
     function renderTable(tableEl, rows, tableKey) {
       const thead = tableEl.querySelector("thead");
       const tbody = tableEl.querySelector("tbody");
@@ -454,8 +793,9 @@
       cols.forEach(c => {
         const th = document.createElement("th");
         const state = sortState[tableKey];
+        const label = c === "Batch Number" ? "Batch Number on PDF File" : c;
         const arrow = state.key === c ? (state.dir === "asc" ? " ▲" : " ▼") : "";
-        th.textContent = `${c}${arrow}`;
+        th.textContent = `${label}${arrow}`;
         th.classList.add("sortable");
         th.addEventListener("click", () => {
           if (state.key === c) {
@@ -481,6 +821,13 @@
         cols.forEach(c => {
           const td = document.createElement("td");
           td.textContent = r[c];
+          if (
+            c === "Batch Number" &&
+            r["Actual Batch Number"] &&
+            normalizeBatchValue(r["Batch Number"]) !== normalizeBatchValue(r["Actual Batch Number"])
+          ) {
+            td.classList.add("batch-mismatch");
+          }
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -637,6 +984,23 @@
       return lines;
     }
 
+    function getActualBatchNumber(studentId) {
+      const sid = String(studentId || "").trim().toUpperCase();
+      const batch = HARDCODED_BATCH_MAPPING[sid] || "";
+      return batch ? `Batch ${batch}` : "";
+    }
+
+    function mapExportRows(rows) {
+      return rows.map(r => {
+        const out = { ...r };
+        if (Object.prototype.hasOwnProperty.call(out, "Batch Number")) {
+          out["Batch Number on PDF File"] = out["Batch Number"];
+          delete out["Batch Number"];
+        }
+        return out;
+      });
+    }
+
     function getBatchNumberFromFileName(fileName) {
       const name = String(fileName || "");
       const m = name.match(/batch\s*[-_ ]?(\d+)/i);
@@ -655,6 +1019,9 @@
         const lines = textItemsToLines(content.items);
         const rawText = content.items.map(i => i.str || "").join(" ");
         const pageRows = parseStudentPage(lines, rawText, fileBatchNumber);
+        for (const row of pageRows) {
+          row["Actual Batch Number"] = getActualBatchNumber(row["Unique Id"]);
+        }
         rows.push(...pageRows);
       }
 
@@ -718,6 +1085,7 @@
           map.set(key, {
             sid,
             batchNumber,
+            actualBatchNumber: r["Actual Batch Number"],
             name: r["Name"],
             gpa: r["Overall GPA"],
             passed: r["Total Hours Passed"],
@@ -757,6 +1125,7 @@
       return Array.from(map.values()).map(x => ({
         "Unique Id": x.sid,
         "Batch Number": x.batchNumber,
+        "Actual Batch Number": x.actualBatchNumber || "",
         "Name": x.name,
         "Overall GPA": x.gpa,
         "Total Hours Passed": x.passed,
@@ -794,9 +1163,11 @@
       const map = new Map();
       for (const r of feeRows) {
         const batch = r["Batch Number"] || "Batch Unknown";
+        const actualBatch = String(r["Actual Batch Number"] || "").trim();
         if (!map.has(batch)) {
           map.set(batch, {
             batch,
+            actualBatch,
             students: new Set(),
             payableAttempts: 0,
             amountExcl: 0,
@@ -805,6 +1176,9 @@
           });
         }
         const x = map.get(batch);
+        if (!x.actualBatch && actualBatch) {
+          x.actualBatch = actualBatch;
+        }
         x.students.add(String(r["Unique Id"] || ""));
         x.payableAttempts += Number(r["Payable Retake Attempts"] || 0);
         x.amountExcl += Number(r["Amount (Excl GST)"] || 0);
@@ -814,6 +1188,7 @@
 
       const rows = Array.from(map.values()).map(x => ({
         "Batch Number": x.batch,
+        "Actual Batch Number": x.actualBatch || "",
         "No. of Students": x.students.size,
         "Payable Retake Attempts": x.payableAttempts,
         "Amount (Excl GST)": Number(x.amountExcl.toFixed(2)),
@@ -854,6 +1229,7 @@
           map.set(key, {
             sid,
             batchNumber,
+            actualBatchNumber: r["Actual Batch Number"],
             name: r["Name"],
             gpa: r["Overall GPA"],
             totalCourses: 0,
@@ -899,6 +1275,7 @@
         return {
           "Unique Id": s.sid,
           "Batch Number": s.batchNumber,
+          "Actual Batch Number": s.actualBatchNumber || "",
           "Name": s.name,
           "Overall GPA": s.gpa,
           "Total Courses": s.totalCourses,
@@ -934,6 +1311,7 @@
       const feeRows = [];
       for (const [studentKey, rows] of byStudent.entries()) {
         const [sid, batchNumber] = studentKey.split("::");
+        const actualBatchNumber = rows.find(r => r["Actual Batch Number"])?.["Actual Batch Number"] || "";
         const failedRows = rows.filter(r => r["Failed Course"] === "Yes");
         if (!failedRows.length) continue;
 
@@ -959,6 +1337,7 @@
           feeRows.push({
             "Unique Id": sid,
             "Batch Number": batchNumber,
+            "Actual Batch Number": actualBatchNumber,
             "Name": r["Name"],
             "Course Code": r["Course Code"],
             "Attempt Count": r["Attempt Count"],
@@ -1058,11 +1437,11 @@
         return;
       }
 
-      const ws = XLSX.utils.json_to_sheet(addSerialNumber(consolidatedRows));
-      const ws2 = XLSX.utils.json_to_sheet(addSerialNumber(studentSummaryRows));
-      const ws3 = XLSX.utils.json_to_sheet(addSerialNumber(feeApplicableRows));
-      const ws4 = XLSX.utils.json_to_sheet(addSerialNumber(failedCourseRows));
-      const ws5 = XLSX.utils.json_to_sheet(addSerialNumber(feeSummaryRows));
+      const ws = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(consolidatedRows)));
+      const ws2 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(studentSummaryRows)));
+      const ws3 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(feeApplicableRows)));
+      const ws4 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(failedCourseRows)));
+      const ws5 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(feeSummaryRows)));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Course Attempts");
       XLSX.utils.book_append_sheet(wb, ws2, "Student Summary");
