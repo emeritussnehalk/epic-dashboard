@@ -161,6 +161,14 @@
       color: #800020;
       font-weight: 700;
     }
+    .latest-grade-fail {
+      color: #c4322a;
+      font-weight: 700;
+    }
+    .prior-pass-grade {
+      color: #07854a;
+      font-weight: 700;
+    }
     th {
       background: #f2f4f7;
       position: sticky;
@@ -730,6 +738,13 @@
       return p !== null ? p <= 1.7 : false;
     }
 
+    function isPassingGrade(grade) {
+      const g = (grade || "").trim();
+      if (!g) return false;
+      const p = gradeToPoint(g);
+      return p !== null ? p > 1.7 : false;
+    }
+
     function blankLabel(value) {
       const v = String(value ?? "").trim();
       return v ? v : "Blank";
@@ -776,6 +791,74 @@
         .replace(/\s+/g, " ");
     }
 
+    function splitBatchValues(value) {
+      return String(value || "")
+        .split(",")
+        .map(part => part.trim())
+        .filter(Boolean);
+    }
+
+    function batchSortValue(value) {
+      const normalized = normalizeBatchValue(value);
+      const num = Number(normalized.replace(/[^\d]/g, ""));
+      return Number.isFinite(num) && normalized !== "" ? num : Number.MAX_SAFE_INTEGER;
+    }
+
+    function joinBatchValues(values) {
+      return Array.from(values)
+        .sort((a, b) => {
+          const diff = batchSortValue(a) - batchSortValue(b);
+          if (diff !== 0) return diff;
+          return String(a).localeCompare(String(b), undefined, { numeric: true });
+        })
+        .join(", ");
+    }
+
+    function addBatchValues(target, value) {
+      splitBatchValues(value).forEach(batch => target.add(batch));
+    }
+
+    function getStudentGroupKey(row) {
+      const sid = String(row["Unique Id"] || "").trim().toUpperCase();
+      const actualBatch = String(row["Actual Batch Number"] || "").trim().toUpperCase();
+      return `${sid}::${actualBatch}`;
+    }
+
+    function setRowMeta(row, meta) {
+      Object.defineProperty(row, "__meta", {
+        value: meta,
+        enumerable: false,
+        configurable: true
+      });
+      return row;
+    }
+
+    function renderGradeCell(td, column, row) {
+      const meta = row.__meta || {};
+      if (column === "Latest Grade" && meta.highlightLatestGrade) {
+        const span = document.createElement("span");
+        span.className = "latest-grade-fail";
+        span.textContent = row[column];
+        td.appendChild(span);
+        return true;
+      }
+      if (column === "All Grades" && Array.isArray(meta.gradeTimeline) && meta.gradeTimeline.length) {
+        meta.gradeTimeline.forEach((gradeEntry, idx) => {
+          if (idx > 0) td.appendChild(document.createTextNode(", "));
+          if (gradeEntry.highlightPass) {
+            const span = document.createElement("span");
+            span.className = "prior-pass-grade";
+            span.textContent = gradeEntry.grade;
+            td.appendChild(span);
+          } else {
+            td.appendChild(document.createTextNode(gradeEntry.grade));
+          }
+        });
+        return true;
+      }
+      return false;
+    }
+
     function renderTable(tableEl, rows, tableKey) {
       const thead = tableEl.querySelector("thead");
       const tbody = tableEl.querySelector("tbody");
@@ -820,7 +903,9 @@
         tr.appendChild(srTd);
         cols.forEach(c => {
           const td = document.createElement("td");
-          td.textContent = r[c];
+          if (!renderGradeCell(td, c, r)) {
+            td.textContent = r[c];
+          }
           if (
             c === "Batch Number" &&
             r["Actual Batch Number"] &&
@@ -1078,79 +1163,108 @@
       const map = new Map();
       for (const r of source) {
         const sid = r["Unique Id"];
-        const batchNumber = r["Batch Number"];
         const course = r["Course Code"];
-        const key = `${sid}::${batchNumber}::${course}`;
+        const studentKey = getStudentGroupKey(r);
+        const key = `${studentKey}::${course}`;
         if (!map.has(key)) {
           map.set(key, {
             sid,
-            batchNumber,
             actualBatchNumber: r["Actual Batch Number"],
             name: r["Name"],
             gpa: r["Overall GPA"],
             passed: r["Total Hours Passed"],
             attempted: r["Total Hours Attempted"],
             course,
-            attemptCount: 0,
-            failedAttempts: 0,
-            allGrades: [],
             latestGrade: "",
             termBatchNumbers: new Set(),
-            latestTermSort: -1,
-            latestLevelSort: -1,
-            latestSeq: -1
+            pdfBatches: new Set(),
+            attempts: [],
+            attemptKeys: new Set(),
+            seq: 0
           });
         }
         const x = map.get(key);
         const grade = blankLabel(r["Grade"]);
         const termSort = getTermSortValue(r["Term Batch Number"]);
         const levelSort = getLevelSortValue(r["L Level"]);
-        x.attemptCount += 1;
-        x.failedAttempts += isFailGrade(grade === "Blank" ? "" : grade) ? 1 : 0;
-        x.allGrades.push(blankLabel(grade));
         x.termBatchNumbers.add(blankLabel(r["Term Batch Number"]));
-
-        const isLater =
-          termSort > x.latestTermSort ||
-          (termSort === x.latestTermSort && levelSort > x.latestLevelSort) ||
-          (termSort === x.latestTermSort && levelSort === x.latestLevelSort && x.attemptCount > x.latestSeq);
-        if (isLater) {
-          x.latestGrade = grade;
-          x.latestTermSort = termSort;
-          x.latestLevelSort = levelSort;
-          x.latestSeq = x.attemptCount;
+        addBatchValues(x.pdfBatches, r["Batch Number"]);
+        const attemptKey = [
+          blankLabel(r["Term Batch Number"]),
+          blankLabel(r["L Level"]),
+          grade
+        ].join("::");
+        if (!x.attemptKeys.has(attemptKey)) {
+          x.attemptKeys.add(attemptKey);
+          x.seq += 1;
+          x.attempts.push({
+            grade,
+            termSort,
+            levelSort,
+            seq: x.seq
+          });
         }
       }
 
-      return Array.from(map.values()).map(x => ({
-        "Unique Id": x.sid,
-        "Batch Number": x.batchNumber,
-        "Actual Batch Number": x.actualBatchNumber || "",
-        "Name": x.name,
-        "Overall GPA": x.gpa,
-        "Total Hours Passed": x.passed,
-        "Total Hours Attempted": x.attempted,
-        "Term Batch Number": Array.from(x.termBatchNumbers).join(", "),
-        "Course Code": x.course,
-        "Attempt Count": x.attemptCount,
-        "Retake Attempts": Math.max(x.attemptCount - 1, 0),
-        "Retake Fee Applicable": "No",
-        "Failed Attempts": x.failedAttempts,
-        "Failed Course": isFailGrade(x.latestGrade === "Blank" ? "" : x.latestGrade) ? "Yes" : "No",
-        "Latest Grade": blankLabel(x.latestGrade),
-        "All Grades": x.allGrades.join(", ")
-      }));
+      return Array.from(map.values()).map(x => {
+        const orderedAttempts = [...x.attempts].sort((a, b) =>
+          a.termSort - b.termSort ||
+          a.levelSort - b.levelSort ||
+          a.seq - b.seq
+        );
+        const latestAttempt = orderedAttempts[orderedAttempts.length - 1] || { grade: "" };
+        x.latestGrade = latestAttempt.grade;
+
+        const priorAttempts = orderedAttempts.slice(0, -1);
+        const latestIsFail = isFailGrade(latestAttempt.grade === "Blank" ? "" : latestAttempt.grade);
+        const priorPassIndexes = priorAttempts
+          .map((attempt, idx) => isPassingGrade(attempt.grade) ? idx : -1)
+          .filter(idx => idx >= 0);
+        const hasPriorPassBeforeLatestFail = latestIsFail && priorPassIndexes.length > 0;
+        const effectiveAttempts = hasPriorPassBeforeLatestFail ? orderedAttempts.slice(0, -1) : orderedAttempts;
+        const effectiveAttemptCount = effectiveAttempts.length;
+        const effectiveFailedAttempts = effectiveAttempts.reduce((count, attempt) =>
+          count + (isFailGrade(attempt.grade === "Blank" ? "" : attempt.grade) ? 1 : 0), 0
+        );
+
+        const row = {
+          "Unique Id": x.sid,
+          "Batch Number": joinBatchValues(x.pdfBatches),
+          "Actual Batch Number": x.actualBatchNumber || "",
+          "Name": x.name,
+          "Overall GPA": x.gpa,
+          "Total Hours Passed": x.passed,
+          "Total Hours Attempted": x.attempted,
+          "Term Batch Number": Array.from(x.termBatchNumbers).join(", "),
+          "Course Code": x.course,
+          "Attempt Count": effectiveAttemptCount,
+          "Retake Attempts": Math.max(effectiveAttemptCount - 1, 0),
+          "Retake Fee Applicable": "No",
+          "Failed Attempts": effectiveFailedAttempts,
+          "Failed Course": latestIsFail ? "Yes" : "No",
+          "Latest Grade": blankLabel(x.latestGrade),
+          "All Grades": orderedAttempts.map(attempt => blankLabel(attempt.grade)).join(", ")
+        };
+
+        return setRowMeta(row, {
+          highlightLatestGrade: hasPriorPassBeforeLatestFail,
+          gradeTimeline: orderedAttempts.map((attempt, idx) => ({
+            grade: blankLabel(attempt.grade),
+            highlightPass: hasPriorPassBeforeLatestFail && idx < orderedAttempts.length - 1 && isPassingGrade(attempt.grade)
+          }))
+        });
+      });
     }
 
     function applyFeeFlagToCourseAttempts(courseRows, feeRows) {
       const feeMap = new Map();
       for (const r of feeRows) {
-        const key = `${r["Unique Id"]}::${r["Batch Number"]}::${r["Course Code"]}`;
+        const key = `${getStudentGroupKey(r)}::${r["Course Code"]}`;
         const yes = r["Fee Applicable"] === "Yes";
         feeMap.set(key, (feeMap.get(key) || false) || yes);
       }
       for (const r of courseRows) {
-        const key = `${r["Unique Id"]}::${r["Batch Number"]}::${r["Course Code"]}`;
+        const key = `${getStudentGroupKey(r)}::${r["Course Code"]}`;
         r["Retake Fee Applicable"] = feeMap.get(key) ? "Yes" : "No";
       }
     }
@@ -1223,12 +1337,11 @@
       const map = new Map();
       for (const r of courseRows) {
         const sid = r["Unique Id"];
-        const batchNumber = r["Batch Number"];
-        const key = `${sid}::${batchNumber}`;
+        const key = getStudentGroupKey(r);
         if (!map.has(key)) {
           map.set(key, {
             sid,
-            batchNumber,
+            pdfBatches: new Set(),
             actualBatchNumber: r["Actual Batch Number"],
             name: r["Name"],
             gpa: r["Overall GPA"],
@@ -1242,6 +1355,7 @@
           });
         }
         const s = map.get(key);
+        addBatchValues(s.pdfBatches, r["Batch Number"]);
         s.totalCourses += 1;
         if (r["Failed Course"] === "Yes") s.failedCourses += 1;
         s.totalFailedAttempts += Number(r["Failed Attempts"] || 0);
@@ -1250,22 +1364,20 @@
 
       const feeByStudent = new Map();
       for (const r of feeRows) {
-        const sid = r["Unique Id"];
-        const key = `${sid}::${r["Batch Number"]}`;
+        const key = getStudentGroupKey(r);
         if (!feeByStudent.has(key)) feeByStudent.set(key, []);
         feeByStudent.get(key).push(r);
       }
 
       const courseByStudent = new Map();
       for (const r of courseRows) {
-        const sid = r["Unique Id"];
-        const key = `${sid}::${r["Batch Number"]}`;
+        const key = getStudentGroupKey(r);
         if (!courseByStudent.has(key)) courseByStudent.set(key, []);
         courseByStudent.get(key).push(r);
       }
 
       return Array.from(map.values()).map(s => {
-        const key = `${s.sid}::${s.batchNumber}`;
+        const key = `${String(s.sid || "").trim().toUpperCase()}::${String(s.actualBatchNumber || "").trim().toUpperCase()}`;
         const studentFeeRows = feeByStudent.get(key) || [];
         const studentCourseRows = courseByStudent.get(key) || [];
         const freeUsed = studentCourseRows.some(x => Number(x["Attempt Count"] || 0) > 1);
@@ -1274,7 +1386,7 @@
         s.payableCourses = studentFeeRows.reduce((acc, x) => acc + Number(x["Payable Retake Attempts"] || 0), 0);
         return {
           "Unique Id": s.sid,
-          "Batch Number": s.batchNumber,
+          "Batch Number": joinBatchValues(s.pdfBatches),
           "Actual Batch Number": s.actualBatchNumber || "",
           "Name": s.name,
           "Overall GPA": s.gpa,
@@ -1302,15 +1414,18 @@
 
       const byStudent = new Map();
       for (const r of source) {
-        const sid = r["Unique Id"];
-        const key = `${sid}::${r["Batch Number"]}`;
+        const key = getStudentGroupKey(r);
         if (!byStudent.has(key)) byStudent.set(key, []);
         byStudent.get(key).push(r);
       }
 
       const feeRows = [];
       for (const [studentKey, rows] of byStudent.entries()) {
-        const [sid, batchNumber] = studentKey.split("::");
+        const [sid] = studentKey.split("::");
+        const batchNumber = joinBatchValues(rows.reduce((set, row) => {
+          addBatchValues(set, row["Batch Number"]);
+          return set;
+        }, new Set()));
         const actualBatchNumber = rows.find(r => r["Actual Batch Number"])?.["Actual Batch Number"] || "";
         const failedRows = rows.filter(r => r["Failed Course"] === "Yes");
         if (!failedRows.length) continue;
