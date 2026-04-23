@@ -212,6 +212,30 @@
     }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    .report-table th,
+    .report-table td {
+      border: 1px solid var(--border);
+      padding: 12px;
+      vertical-align: middle;
+    }
+    .report-table th {
+      background: #f2f4f7;
+      text-align: left;
+    }
+    .report-desc {
+      color: #475467;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .report-action {
+      width: 180px;
+      text-align: center;
+    }
     .policy-box {
       border: 1px solid #d0d5dd;
       border-radius: 12px;
@@ -246,7 +270,6 @@
         <input id="studentFilter" type="text" placeholder="Optional Student ID (e.g., B00781408)" />
         <button id="processBtn">Process PDF</button>
         <button id="downloadBtn" class="ghost" disabled>Download Excel</button>
-        <button id="downloadCourseWiseBtn" class="ghost" disabled>Download Course-wise Lists</button>
         <div class="file-hint">Instruction: Upload GPA report PDF(s). Actual batch number is mapped automatically from built-in UMass confirmed student data.</div>
       </div>
       <div id="status" class="status"></div>
@@ -277,6 +300,7 @@
         <button id="tabFeeSummary" class="tab-btn" data-tab="feeSummaryPanel">Fee Receivable Summary</button>
         <button id="tabFeeStudentDetails" class="tab-btn" data-tab="feeStudentDetailsPanel">Fee Student Details</button>
         <button id="tabCourseFeeSummary" class="tab-btn" data-tab="courseFeeSummaryPanel">Course Fee Summary</button>
+        <button id="tabReports" class="tab-btn" data-tab="reportsPanel">Reports</button>
         <button id="tabPolicy" class="tab-btn" data-tab="policyPanel">Policy</button>
       </div>
       <div id="coursePanel" class="tab-panel">
@@ -351,6 +375,45 @@
           </table>
         </div>
       </div>
+      <div id="reportsPanel" class="tab-panel">
+        <strong>Reports</strong>
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Report</th>
+              <th>Description</th>
+              <th class="report-action">Download</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Student Course Status Report</td>
+              <td class="report-desc">Downloads the BOid-wise report with hardcoded student names, actual batch number, and status for each detected course.</td>
+              <td class="report-action"><button id="downloadStatusMatrixBtn" class="ghost" disabled>Download</button></td>
+            </tr>
+            <tr>
+              <td>Course-wise Latest Failed Lists</td>
+              <td class="report-desc">Downloads a workbook split by course code, listing students whose latest counted attempt is failed.</td>
+              <td class="report-action"><button id="downloadCourseWiseBtn" class="ghost" disabled>Download</button></td>
+            </tr>
+            <tr>
+              <td>Prospective Students List</td>
+              <td class="report-desc">Downloads students who have at least one course marked as prospective in the status matrix.</td>
+              <td class="report-action"><button id="downloadProspectiveReportBtn" class="ghost" disabled>Download</button></td>
+            </tr>
+            <tr>
+              <td>Failed Students List</td>
+              <td class="report-desc">Downloads students who have at least one course marked as failed in the status matrix.</td>
+              <td class="report-action"><button id="downloadFailedReportBtn" class="ghost" disabled>Download</button></td>
+            </tr>
+            <tr>
+              <td>Passed Students List</td>
+              <td class="report-desc">Downloads students whose course statuses are only passed or completed. Completed students are included here.</td>
+              <td class="report-action"><button id="downloadPassedReportBtn" class="ghost" disabled>Download</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div id="policyPanel" class="tab-panel">
         <div class="policy-box">
           <h3>Policy Used for This Report</h3>
@@ -379,7 +442,11 @@
     const fileInput = document.getElementById("pdfFile");
     const processBtn = document.getElementById("processBtn");
     const downloadBtn = document.getElementById("downloadBtn");
+    const downloadStatusMatrixBtn = document.getElementById("downloadStatusMatrixBtn");
     const downloadCourseWiseBtn = document.getElementById("downloadCourseWiseBtn");
+    const downloadProspectiveReportBtn = document.getElementById("downloadProspectiveReportBtn");
+    const downloadFailedReportBtn = document.getElementById("downloadFailedReportBtn");
+    const downloadPassedReportBtn = document.getElementById("downloadPassedReportBtn");
     const studentFilterEl = document.getElementById("studentFilter");
     const searchStudentIdEl = document.getElementById("searchStudentId");
     const searchCourseCodeEl = document.getElementById("searchCourseCode");
@@ -727,6 +794,334 @@
       "B00809243": "7"
     };
 
+    const HARDCODED_STUDENT_NAMES = {
+      "B00722885": "Suhasini Basu",
+      "B00725472": "Mohammed Bilal",
+      "B00725858": "DINESH BONDALAPATI",
+      "B00726642": "PRASHANTH NAGARAJ",
+      "B00728572": "Maira Qamar",
+      "B00728573": "Rahul Kansadia",
+      "B00728574": "Vasavi Raparthi",
+      "B00728576": "Akash Mallick",
+      "B00728577": "Parikshith Manjunath",
+      "B00728578": "SHASHANK PANDEY",
+      "B00728579": "Shilpi Mukherjee",
+      "B00729158": "Hitesh Purohit",
+      "B00729659": "Auras Atreya",
+      "B00730576": "Gaurav Londhe",
+      "B00730578": "Dinesh Choudhary",
+      "B00730581": "Shantanu Narkhede",
+      "B00731276": "PRATAP ARNI MALLISETTY",
+      "B00731287": "Zulekha Motiwala",
+      "B00731288": "Deep Gupta",
+      "B00731290": "Assumpta Fernandes",
+      "B00731291": "Kiran N",
+      "B00732217": "Boaz Kenny",
+      "B00733620": "Rohitashwa Kumar",
+      "B00733623": "Purnima Sabnis",
+      "B00733782": "Vivek Waghela",
+      "B00733783": "KANSARI PRADHAN",
+      "B00733784": "Jai Desai",
+      "B00733785": "Vishal Shirsat",
+      "B00734063": "Kavya S",
+      "B00734064": "Rhucha Vatturkar",
+      "B00735030": "Ankur Ojha",
+      "B00735311": "Aayush Saxena",
+      "B00735775": "Aishwarya Sillodkar",
+      "B00735776": "SOUMYA OTTA",
+      "B00735777": "Shivam Ratnani",
+      "B00736277": "Venkataramanan S",
+      "B00736422": "Himanshu Singh",
+      "B00736733": "Stuti Singh",
+      "B00736734": "Bittu .",
+      "B00736831": "Megha Nangia",
+      "B00737303": "Megha Vig",
+      "B00737583": "Rhushabh Vaghela",
+      "B00737584": "Aditi Singh",
+      "B00737585": "AARISH AZHAR KHAN",
+      "B00737587": "Ashima Prehar",
+      "B00738068": "Mayuri More",
+      "B00738570": "Srinivas Gunturu",
+      "B00738884": "Satish Mistry",
+      "B00738885": "Nikita Patel",
+      "B00738886": "Jesu Kumar J",
+      "B00739605": "LEKSHMI MANJU",
+      "B00739606": "Moksha Shah",
+      "B00739607": "Neil Saungikar",
+      "B00739916": "Apurv Vishal",
+      "B00739917": "Saravanan S",
+      "B00739918": "Sukhendu Ghosh",
+      "B00740137": "Thompson Cherian",
+      "B00740138": "Jagdish Kapkoti",
+      "B00740139": "Shankha Karmakar",
+      "B00740683": "Dhruvin Sheth",
+      "B00740841": "Sivaramakrishnan Hariharan",
+      "B00740936": "Pramod Nayak",
+      "B00741117": "PRAVIN MOHITE",
+      "B00741239": "SOUMYA SETH",
+      "B00741240": "Medha Kartha",
+      "B00741452": "Manickavasaham Somasundaram",
+      "B00741581": "Mayank Agarwal",
+      "B00741884": "Sarah Mehta",
+      "B00745714": "Bitto Babu",
+      "B00747334": "Akshata Gokhale",
+      "B00747336": "Vijaya Baskar Esakkimuthu",
+      "B00747465": "YASH GURUNG",
+      "B00747866": "Sneh Shah",
+      "B00747887": "Dharmendra Jha",
+      "B00748003": "Shrey Sethi",
+      "B00748005": "ASHISH KUMAR ROY",
+      "B00748006": "Tamanjot Sandhu",
+      "B00748306": "Nayan Chaudhari",
+      "B00748307": "Venessa Maria Rodrigues",
+      "B00748308": "Shubham Diwan",
+      "B00748467": "Yuvraj Arora",
+      "B00748916": "Rownmani Chelliah",
+      "B00749269": "Shyam Tonk",
+      "B00750142": "SHWETA SAMITHA",
+      "B00750229": "Dahlia Terapalli",
+      "B00750230": "Shreyam .",
+      "B00750614": "Parikshit Vyas",
+      "B00750914": "Yogavidhya Purohit",
+      "B00751200": "VENKATA BALA REVANTH SEETHAMRAJU",
+      "B00751201": "Namrata Dutta",
+      "B00751453": "Nandakumar Patil",
+      "B00751454": "Harshal Selkar",
+      "B00751455": "Akshay Kripalani",
+      "B00751457": "Akshay Jadhav",
+      "B00752443": "Harsha Goel",
+      "B00752444": "Mahima Chavan",
+      "B00752468": "Tsering Yangchen",
+      "B00752472": "Mitali Parkhi",
+      "B00752473": "Mohinder Singh",
+      "B00752476": "Rahaman Javidur",
+      "B00752628": "Shashwathi Harekoppa",
+      "B00752786": "Rishi Shrivastav",
+      "B00752787": "Navdeep Pahal",
+      "B00752788": "Dwarakkesh Balaji V",
+      "B00753640": "Anusha Bose",
+      "B00753736": "Shweta Singh",
+      "B00753737": "Neil Mattoo",
+      "B00753840": "Jeremiah Gangera",
+      "B00753841": "Prashant Singh",
+      "B00753842": "Akshay Kakkar",
+      "B00754023": "ABHISHEK SRIVASTAVA",
+      "B00754024": "ASHUTOSH BHAIK",
+      "B00754025": "Dhaivat Kothari",
+      "B00754773": "Sarthak Kakkar",
+      "B00754774": "Smitha Sudevan",
+      "B00754983": "Manvitha Pothineni",
+      "B00755023": "Shubham Khawshi",
+      "B00755343": "Shivani Valluri",
+      "B00755775": "Satish Bayya",
+      "B00756316": "Sujan Yadav",
+      "B00756317": "Ramu Yadav Vatti",
+      "B00756320": "Renganathan Muthurajan",
+      "B00756321": "Chaitanya Laxman",
+      "B00756322": "Ashok Lal",
+      "B00756323": "Ashwini R S",
+      "B00756325": "Renu Jindal",
+      "B00756817": "Solomon Odum",
+      "B00757070": "Shilpa Jabin",
+      "B00757071": "Muhammad Meraj Khalid",
+      "B00757073": "Ajai Mitra",
+      "B00757074": "mayank tandon",
+      "B00757154": "Arpit Garg",
+      "B00757155": "Kalit Kapur",
+      "B00757290": "PRAGYA GUPTA",
+      "B00757291": "Venugopal gayathri",
+      "B00757519": "Lakshmi Krishnagowda",
+      "B00757525": "Dr Alok Rao",
+      "B00757748": "Vishal Sonigra",
+      "B00757749": "Mayur Karelia",
+      "B00759718": "Teertha Umesh Irla Irla",
+      "B00759984": "Srilakshmi Yelagundahalli",
+      "B00759985": "Vignesh G",
+      "B00759986": "Sameer Vyas",
+      "B00759987": "GAYATHRI DEVI CHINTALAPALLIPATTA",
+      "B00759988": "ARNAB MAITY",
+      "B00760300": "RAMESWAR DASH",
+      "B00760456": "Sonia Sarin",
+      "B00760600": "Subrahmanyeswari Kamatamu",
+      "B00760601": "Chandrasekhar Puppala",
+      "B00760603": "Gautam Dey",
+      "B00760604": "Tanveer Shaikh",
+      "B00760607": "Barathi Maniraj",
+      "B00761056": "PALLAPROLU PRAVEEN KUMAR",
+      "B00761133": "Aditi Shukla",
+      "B00761178": "Nithin Kumar",
+      "B00761234": "SUPREETHA H S",
+      "B00761332": "Satish Kumar",
+      "B00761559": "Noel Fernandes",
+      "B00761747": "Amandeep Bhandal",
+      "B00761748": "Suraj Sreepathi",
+      "B00761749": "PratapSingh Nathani",
+      "B00761750": "RAHUL GUPTA",
+      "B00761752": "Jothi Johnson",
+      "B00761754": "Aaron Fernandes",
+      "B00761755": "Balamurugan Srinivasan",
+      "B00761756": "Anju Sardana",
+      "B00761810": "Jogesh Kakati",
+      "B00761819": "Jai Kiran Reddy Gedi",
+      "B00761869": "HRISHIKESH DARWIN",
+      "B00762012": "Bhaskaran Narayanaswamy",
+      "B00762186": "Roshni SV",
+      "B00762535": "Aiswarya Aravindakshan",
+      "B00762673": "SHIBABRATA BANERJEE",
+      "B00763021": "Gideon Pearl",
+      "B00763022": "SRIVIDHYA IYER",
+      "B00763024": "NAVEEDUS SAQLAIN",
+      "B00763226": "SACHIN MALGUNDKAR",
+      "B00763227": "Kirankumar Amin",
+      "B00763231": "Varun Ravi",
+      "B00763878": "Shourie Chatterji",
+      "B00764053": "Arun Sharma",
+      "B00764163": "Sakthivel Subramanian",
+      "B00764318": "Mayank Ray",
+      "B00764478": "Suchita Arabatti",
+      "B00764667": "Jahnavee S",
+      "B00764668": "Adhyayan Gupta",
+      "B00764777": "Pugazhendhi Sekaran",
+      "B00765067": "Shabana Zeirudeen Munirabanu",
+      "B00765068": "Jishin P V",
+      "B00765070": "Yuvateja Thotamalla",
+      "B00765331": "Rushikesh Sawant",
+      "B00765332": "Anees Ahmed Khadar Batcha",
+      "B00766174": "Vijay Aghicha",
+      "B00769457": "Abhay Sharma",
+      "B00769458": "Deepti Mishra",
+      "B00769461": "Tushar Pujari",
+      "B00769885": "Shivam Kumar",
+      "B00770204": "Ishani Shah",
+      "B00770990": "Sameeksha Chhibber",
+      "B00771200": "Remya Raju S",
+      "B00771201": "Nadaraj Prabhu",
+      "B00771390": "Vikas .",
+      "B00771597": "Chinmay Santosh Joshi",
+      "B00771701": "Rajprasad D",
+      "B00771702": "Goutham Kumar",
+      "B00772126": "Deepthi Malu",
+      "B00772487": "Pritam Biswas",
+      "B00772488": "Andrews Gabriel Clapton Angels",
+      "B00772615": "Varnan Mathur",
+      "B00773195": "Harshiith Mehta",
+      "B00774036": "Heena Bhatia",
+      "B00774037": "Arnab Ganguly",
+      "B00774038": "Anas Ajaz Mohammed",
+      "B00774143": "Brindha Rajaraman",
+      "B00774144": "Dr. Subhashini Desam",
+      "B00774244": "Atreyi Bhanja",
+      "B00774422": "Mohanalakshmi Kumar",
+      "B00774646": "Dr. Rashmirekha Saha",
+      "B00774647": "Shabeel Khan",
+      "B00774648": "Prakash Lakhiani",
+      "B00774649": "Yugandhara Rajendra Bodhekar",
+      "B00775244": "Priyakshi Singla",
+      "B00775245": "Harsh Kumar Narwani",
+      "B00775445": "Mahesh Kumar M.N Siddappa",
+      "B00775446": "Galiviti Swapnika Reddy",
+      "B00777450": "Shruthi Gunda",
+      "B00777638": "Archana Tripathi",
+      "B00777639": "Raja N",
+      "B00778408": "NIVEDITA SINGH",
+      "B00778547": "Devendra Singh",
+      "B00778876": "Josephine Dongre",
+      "B00778986": "Mythereye M",
+      "B00779159": "Anil Sheshrao Kamble",
+      "B00779279": "Dhanush B",
+      "B00779710": "Senthil kumaran S",
+      "B00779711": "Manoja Cherukupalli",
+      "B00779836": "Sahana S",
+      "B00779837": "Mrs. Kavitha Kamal",
+      "B00779838": "Kumari Anjali",
+      "B00780047": "Dharmil Parekh",
+      "B00780048": "Jim Regan Paul Manoharan Dhanapaul",
+      "B00780050": "Debjit Kesh",
+      "B00780109": "Athinarayanan Sekaran",
+      "B00780111": "Karthikeyan S",
+      "B00780112": "Dixit Sureshbhai Timbadiya",
+      "B00780410": "Shilpa Diwakar",
+      "B00780657": "Rushikesh Prashant Kabra",
+      "B00780901": "Bavneet Kaur Kohli",
+      "B00781064": "Priyamrita Ghosh",
+      "B00781065": "Srikanth A N",
+      "B00781175": "Basavaraj M",
+      "B00781308": "Ameya Shyam Dandavate",
+      "B00781309": "Harshitha Umesh",
+      "B00782225": "Mahesh Manohar Thakre",
+      "B00782226": "Akkshaya Ajeysudarsan",
+      "B00782227": "Sriman Rabisankar Dash",
+      "B00782632": "Jaywardhan Singh Thakur",
+      "B00783035": "Yash Jaiswal",
+      "B00783348": "Mohan Kumar V M",
+      "B00783442": "ANSHIK SHARMA",
+      "B00783443": "Abhinay Nandigam",
+      "B00783692": "Sanchit Mehdiratta",
+      "B00783786": "Koushik Kumar",
+      "B00783787": "Dr Apra Kalra",
+      "B00784038": "Harshit Rajesh Dharmik",
+      "B00784156": "KIRAN KUMAR GUNTAMUKKALA",
+      "B00784335": "Thiruvengadam SundaraRajan",
+      "B00784336": "Akanksha sharma",
+      "B00784338": "Devika Vengurlekar",
+      "B00784340": "Anjali Manoj Mathews",
+      "B00784341": "Saradha Baskaran",
+      "B00784432": "Komal Preet K Chawla",
+      "B00784727": "Smriti Singh",
+      "B00784728": "DARSHAN JAGDISHCHANDRA SHUKAL",
+      "B00785804": "SHWETTHA MANIKANDAN",
+      "B00786384": "Vaibhav Chopra",
+      "B00786385": "Rahoul Thakkur",
+      "B00786834": "Rohit Kenny Reddy J",
+      "B00787099": "Lalitha Sathyanarayanan",
+      "B00787335": "Deepthi Meeth Mehta",
+      "B00787998": "Manoj Kumar Rangapa",
+      "B00787999": "Sharath Babu ananda Murthy",
+      "B00788003": "Srinidhi Kollepali",
+      "B00788546": "Prateek Solanki",
+      "B00789439": "Aruvi Thirumeni",
+      "B00789440": "Anil S Kulkarni",
+      "B00789441": "Nazima Begum",
+      "B00789442": "GURUMOORTHY GANGADHARAN",
+      "B00789443": "Abhav Mehrotra",
+      "B00790525": "Aniket Sahadev Shelar",
+      "B00790526": "Ezhilan Manimaran",
+      "B00790685": "Chaudhary Mohit",
+      "B00790846": "Aditya Awasthi",
+      "B00791342": "Prateek Mehta",
+      "B00792504": "Akhil Chakravarthy Adigala",
+      "B00792505": "Krishna Vaibhav Dhadse",
+      "B00792506": "KALPIT UTTAM",
+      "B00792636": "Prashanth Nagaraj",
+      "B00793453": "Aishwarya Kaggdas",
+      "B00793454": "Akhila K",
+      "B00793455": "Shadab Zahid Khan",
+      "B00793456": "Remya K",
+      "B00793457": "vishakha karnani",
+      "B00793458": "Riona Rodrigues",
+      "B00793739": "Thirumalesh R",
+      "B00793741": "Pousali Ghosh",
+      "B00793742": "Ishwarya S A",
+      "B00793743": "Adarsh Ranjan Singh",
+      "B00793858": "Akhil Bisen",
+      "B00794020": "Bushra Ahmed",
+      "B00794021": "Rima Roy",
+      "B00794022": "Antara Bhattacharjee",
+      "B00800692": "Shivalik Chhabra",
+      "B00801484": "Rupali Jaywant Khilare",
+      "B00802477": "S. Govindarajan",
+      "B00805683": "Gaurav Sharma",
+      "B00806510": "Ravpreet Singh",
+      "B00806511": "AASTHA KANSAL",
+      "B00806515": "Rushad Darayus Marolia",
+      "B00806969": "Amar Sing",
+      "B00807353": "Makawana Vismaykumar Jyotindrakumar",
+      "B00808207": "Praveen Vasireddy",
+      "B00808208": "Anushka Pragnesh Mehta",
+      "B00808779": "Somya Upadhyay",
+      "B00809243": "Abhishek Sharma"
+    };
+
     let consolidatedRows = [];
     let studentSummaryRows = [];
     let failedCourseRows = [];
@@ -735,6 +1130,7 @@
     let feeSummaryRows = [];
     let feeStudentDetailRows = [];
     let courseFeeSummaryRows = [];
+    let masterCourseRows = [];
     let allCourseRows = [];
     let allStudentSummaryRows = [];
     let allFailedCourseRows = [];
@@ -1147,6 +1543,11 @@
       return batch ? `Batch ${batch}` : "";
     }
 
+    function getHardcodedStudentName(studentId) {
+      const sid = String(studentId || "").trim().toUpperCase();
+      return HARDCODED_STUDENT_NAMES[sid] || "";
+    }
+
     function mapExportRows(rows) {
       return rows.map(r => {
         const out = { ...r };
@@ -1201,6 +1602,9 @@
           .filter(row => isRowWithinReportCutoff(row, reportCutoff));
         for (const row of pageRows) {
           row["Actual Batch Number"] = getActualBatchNumber(row["Unique Id"]);
+          if (!String(row["Name"] || "").trim()) {
+            row["Name"] = getHardcodedStudentName(row["Unique Id"]);
+          }
         }
         rows.push(...pageRows);
       }
@@ -1366,6 +1770,130 @@
 
     function addSerialNumber(rows) {
       return rows.map((r, idx) => ({ "Sr. No.": idx + 1, ...r }));
+    }
+
+    function buildStudentCourseStatusRows(courseRows) {
+      const hardcodedStudentIds = Object.keys(HARDCODED_BATCH_MAPPING)
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const uniqueCourseCodes = Array.from(new Set(
+        courseRows
+          .map(r => String(r["Course Code"] || "").trim())
+          .filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+      const studentCourseStatus = new Map();
+      const studentsInReport = new Set();
+      const studentNameMap = new Map();
+
+      for (const row of courseRows) {
+        const studentId = String(row["Unique Id"] || "").trim().toUpperCase();
+        const courseCode = String(row["Course Code"] || "").trim();
+        if (!studentId || !courseCode) continue;
+        studentsInReport.add(studentId);
+        if (!studentNameMap.has(studentId)) {
+          studentNameMap.set(studentId, String(row["Name"] || "").trim());
+        }
+        studentCourseStatus.set(
+          `${studentId}::${courseCode}`,
+          row["Failed Course"] === "Yes" ? "Failed" : "Passed"
+        );
+      }
+
+      return hardcodedStudentIds.map(studentId => {
+        const exportRow = {
+          "BO Id": studentId,
+          "Student Name": studentNameMap.get(studentId) || getHardcodedStudentName(studentId),
+          "Actual Batch Number": getActualBatchNumber(studentId)
+        };
+        let passedCourseCount = 0;
+        for (const courseCode of uniqueCourseCodes) {
+          const key = `${studentId}::${courseCode}`;
+          if (studentCourseStatus.has(key)) {
+            const status = studentCourseStatus.get(key);
+            exportRow[courseCode] = status;
+            if (status === "Passed") passedCourseCount += 1;
+          } else if (studentsInReport.has(studentId)) {
+            exportRow[courseCode] = "Prospective";
+          } else {
+            exportRow[courseCode] = "Completed";
+          }
+        }
+        if (uniqueCourseCodes.length > 0 && passedCourseCount === uniqueCourseCodes.length) {
+          for (const courseCode of uniqueCourseCodes) {
+            exportRow[courseCode] = "Completed";
+          }
+        }
+        return exportRow;
+      });
+    }
+
+    function getStatusCourseColumns(rows) {
+      const firstRow = rows[0] || {};
+      return Object.keys(firstRow).filter(k =>
+        k !== "BO Id" &&
+        k !== "Student Name" &&
+        k !== "Actual Batch Number"
+      );
+    }
+
+    function buildStudentCourseStatusCountRows(statusRows) {
+      const courseColumns = getStatusCourseColumns(statusRows);
+      return courseColumns.map(courseCode => {
+        const counts = {
+          "Course Code": courseCode,
+          "Prospective": 0,
+          "Passed / Completed": 0,
+          "Failed": 0
+        };
+
+        for (const row of statusRows) {
+          const status = String(row[courseCode] || "").trim();
+          if (status === "Prospective") {
+            counts["Prospective"] += 1;
+          } else if (status === "Failed") {
+            counts["Failed"] += 1;
+          } else if (status === "Passed" || status === "Completed") {
+            counts["Passed / Completed"] += 1;
+          }
+        }
+
+        return counts;
+      });
+    }
+
+    function buildStudentStatusSubsetRows(courseRows, type) {
+      const statusRows = buildStudentCourseStatusRows(courseRows);
+      const courseColumns = getStatusCourseColumns(statusRows);
+
+      return statusRows.filter(row => {
+        const statuses = courseColumns.map(col => String(row[col] || "").trim()).filter(Boolean);
+        if (!statuses.length) return false;
+        if (type === "prospective") return statuses.includes("Prospective");
+        if (type === "failed") return statuses.includes("Failed");
+        if (type === "passed") {
+          return statuses.every(status => status === "Passed" || status === "Completed");
+        }
+        return false;
+      });
+    }
+
+    function downloadStudentStatusSubsetReport(type, fileName, sheetName, successMessage) {
+      if (!masterCourseRows.length) {
+        setStatus("No processed data available for report export.", "warn");
+        return;
+      }
+
+      const rows = buildStudentStatusSubsetRows(masterCourseRows, type);
+      if (!rows.length) {
+        setStatus(`No ${type} students found for export.`, "warn");
+        return;
+      }
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, fileName);
+      setStatus(successMessage, "ok");
     }
 
     function buildFeeReceivableSummary(feeRows) {
@@ -1765,7 +2293,11 @@
       }
 
       downloadBtn.disabled = true;
+      downloadStatusMatrixBtn.disabled = true;
       downloadCourseWiseBtn.disabled = true;
+      downloadProspectiveReportBtn.disabled = true;
+      downloadFailedReportBtn.disabled = true;
+      downloadPassedReportBtn.disabled = true;
       applySearchBtn.disabled = true;
       clearSearchBtn.disabled = true;
       consolidatedRows = [];
@@ -1776,6 +2308,7 @@
       feeSummaryRows = [];
       feeStudentDetailRows = [];
       courseFeeSummaryRows = [];
+      masterCourseRows = [];
       allCourseRows = [];
       allStudentSummaryRows = [];
       allFailedCourseRows = [];
@@ -1805,6 +2338,7 @@
         }
 
         const studentIdFilter = studentFilterEl.value || "";
+        masterCourseRows = buildCourseAttemptRows(rows, "");
         consolidatedRows = buildCourseAttemptRows(rows, studentIdFilter);
         const feeAllRows = buildFeeApplicableCourses(consolidatedRows, studentIdFilter);
         applyFeeFlagToCourseAttempts(consolidatedRows, feeAllRows);
@@ -1830,7 +2364,11 @@
 
         renderAllTables();
         downloadBtn.disabled = false;
+        downloadStatusMatrixBtn.disabled = false;
         downloadCourseWiseBtn.disabled = false;
+        downloadProspectiveReportBtn.disabled = false;
+        downloadFailedReportBtn.disabled = false;
+        downloadPassedReportBtn.disabled = false;
         applySearchBtn.disabled = false;
         clearSearchBtn.disabled = false;
 
@@ -1873,6 +2411,50 @@
       XLSX.utils.book_append_sheet(wb, ws8, "Course Fee Summary");
       XLSX.writeFile(wb, "GPA_Consolidated.xlsx");
       setStatus("Excel file downloaded successfully.", "ok");
+    });
+
+    downloadStatusMatrixBtn.addEventListener("click", () => {
+      if (!masterCourseRows.length) {
+        setStatus("No processed data available for status report export.", "warn");
+        return;
+      }
+
+      const statusRows = buildStudentCourseStatusRows(masterCourseRows);
+      const countRows = buildStudentCourseStatusCountRows(statusRows);
+      const ws = XLSX.utils.json_to_sheet(statusRows);
+      const ws2 = XLSX.utils.json_to_sheet(countRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Student Course Status");
+      XLSX.utils.book_append_sheet(wb, ws2, "Course Status Counts");
+      XLSX.writeFile(wb, "Student_Course_Status_Report.xlsx");
+      setStatus("Student course status report downloaded successfully.", "ok");
+    });
+
+    downloadProspectiveReportBtn.addEventListener("click", () => {
+      downloadStudentStatusSubsetReport(
+        "prospective",
+        "Prospective_Students_List.xlsx",
+        "Prospective Students",
+        "Prospective students report downloaded successfully."
+      );
+    });
+
+    downloadFailedReportBtn.addEventListener("click", () => {
+      downloadStudentStatusSubsetReport(
+        "failed",
+        "Failed_Students_List.xlsx",
+        "Failed Students",
+        "Failed students report downloaded successfully."
+      );
+    });
+
+    downloadPassedReportBtn.addEventListener("click", () => {
+      downloadStudentStatusSubsetReport(
+        "passed",
+        "Passed_Students_List.xlsx",
+        "Passed Students",
+        "Passed students report downloaded successfully."
+      );
     });
 
     downloadCourseWiseBtn.addEventListener("click", () => {
