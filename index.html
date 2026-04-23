@@ -246,6 +246,7 @@
         <input id="studentFilter" type="text" placeholder="Optional Student ID (e.g., B00781408)" />
         <button id="processBtn">Process PDF</button>
         <button id="downloadBtn" class="ghost" disabled>Download Excel</button>
+        <button id="downloadCourseWiseBtn" class="ghost" disabled>Download Course-wise Lists</button>
         <div class="file-hint">Instruction: Upload GPA report PDF(s). Actual batch number is mapped automatically from built-in UMass confirmed student data.</div>
       </div>
       <div id="status" class="status"></div>
@@ -271,8 +272,11 @@
         <button id="tabSummary" class="tab-btn active" data-tab="summaryPanel">Student Summary</button>
         <button id="tabCourse" class="tab-btn" data-tab="coursePanel">Course Attempts</button>
         <button id="tabFailed" class="tab-btn" data-tab="failedPanel">Failed Courses</button>
+        <button id="tabLatestFailedStudents" class="tab-btn" data-tab="latestFailedStudentsPanel">Students Latest Failed</button>
         <button id="tabFee" class="tab-btn" data-tab="feePanel">Fee Applicable Courses</button>
         <button id="tabFeeSummary" class="tab-btn" data-tab="feeSummaryPanel">Fee Receivable Summary</button>
+        <button id="tabFeeStudentDetails" class="tab-btn" data-tab="feeStudentDetailsPanel">Fee Student Details</button>
+        <button id="tabCourseFeeSummary" class="tab-btn" data-tab="courseFeeSummaryPanel">Course Fee Summary</button>
         <button id="tabPolicy" class="tab-btn" data-tab="policyPanel">Policy</button>
       </div>
       <div id="coursePanel" class="tab-panel">
@@ -302,6 +306,15 @@
           </table>
         </div>
       </div>
+      <div id="latestFailedStudentsPanel" class="tab-panel">
+        <strong>Students Latest Failed</strong>
+        <div class="table-wrap">
+          <table id="latestFailedStudentsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
       <div id="feePanel" class="tab-panel">
         <strong>Fee Applicable Courses</strong>
         <div class="table-wrap">
@@ -320,17 +333,36 @@
           </table>
         </div>
       </div>
+      <div id="feeStudentDetailsPanel" class="tab-panel">
+        <strong>Fee Student Details</strong>
+        <div class="table-wrap">
+          <table id="feeStudentDetailsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="courseFeeSummaryPanel" class="tab-panel">
+        <strong>Course Fee Summary</strong>
+        <div class="table-wrap">
+          <table id="courseFeeSummaryTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
       <div id="policyPanel" class="tab-panel">
         <div class="policy-box">
           <h3>Policy Used for This Report</h3>
           <p><strong>Failure Rule</strong></p>
           <p>1. A course attempt is treated as failed when grade is <code>Blank</code> or grade is <code>C-</code> and below (<code>D+</code>, <code>D</code>, <code>D-</code>, <code>F</code>, etc.).</p>
-          <p>2. A course is treated as currently failed only when the latest attempt is failed.</p>
+          <p>2. A course is treated as currently failed only when the latest counted attempt is failed.</p>
+          <p>3. Attempts beyond the report file cutoff (example: <code>I2 2026</code> file contains <code>2026 I3</code>) are treated as ongoing and ignored for failure and fee calculation.</p>
           <p><strong>Retake Fee Rule</strong></p>
-          <p>1. Attempt count is the number of times the same <code>Course Code</code> appears for a student.</p>
-          <p>2. Retake attempts start from attempt #2 for a course.</p>
-          <p>3. One free retake is available once per student and batch.</p>
-          <p>4. If that free retake is already consumed, all failed courses are fee-applicable for next retake at <code>15000 + 18% GST</code> per course.</p>
+          <p>1. Fee eligibility is tracked student-wise for each batch, not course-wise.</p>
+          <p>2. The first failed attempt does not attract any fee.</p>
+          <p>3. The first reattempt after any failure is free once per student.</p>
+          <p>4. From the third overall attempt onward, fee is applicable at <code>15000 + 18% GST</code> per course retake.</p>
         </div>
       </div>
     </div>
@@ -347,6 +379,7 @@
     const fileInput = document.getElementById("pdfFile");
     const processBtn = document.getElementById("processBtn");
     const downloadBtn = document.getElementById("downloadBtn");
+    const downloadCourseWiseBtn = document.getElementById("downloadCourseWiseBtn");
     const studentFilterEl = document.getElementById("studentFilter");
     const searchStudentIdEl = document.getElementById("searchStudentId");
     const searchCourseCodeEl = document.getElementById("searchCourseCode");
@@ -356,8 +389,11 @@
     const courseTable = document.getElementById("courseTable");
     const summaryTable = document.getElementById("summaryTable");
     const failedTable = document.getElementById("failedTable");
+    const latestFailedStudentsTable = document.getElementById("latestFailedStudentsTable");
     const feeTable = document.getElementById("feeTable");
     const feeSummaryTable = document.getElementById("feeSummaryTable");
+    const feeStudentDetailsTable = document.getElementById("feeStudentDetailsTable");
+    const courseFeeSummaryTable = document.getElementById("courseFeeSummaryTable");
     const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
     const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
 
@@ -694,20 +730,29 @@
     let consolidatedRows = [];
     let studentSummaryRows = [];
     let failedCourseRows = [];
+    let latestFailedStudentRows = [];
     let feeApplicableRows = [];
     let feeSummaryRows = [];
+    let feeStudentDetailRows = [];
+    let courseFeeSummaryRows = [];
     let allCourseRows = [];
     let allStudentSummaryRows = [];
     let allFailedCourseRows = [];
+    let allLatestFailedStudentRows = [];
     let allFeeApplicableRows = [];
     let allFeeSummaryRows = [];
+    let allFeeStudentDetailRows = [];
+    let allCourseFeeSummaryRows = [];
 
     const sortState = {
       course: { key: null, dir: "asc" },
       summary: { key: null, dir: "asc" },
       failed: { key: null, dir: "asc" },
+      latestFailedStudents: { key: null, dir: "asc" },
       fee: { key: null, dir: "asc" }
       , feeSummary: { key: null, dir: "asc" }
+      , feeStudentDetails: { key: null, dir: "asc" }
+      , courseFeeSummary: { key: null, dir: "asc" }
     };
 
     const setStatus = (msg, type = "ok") => {
@@ -768,7 +813,10 @@
       const working = [...rows];
       let totalRow = null;
       if (tableKey === "feeSummary") {
-        const idx = working.findIndex(r => String(r["Batch Number"] || "").toUpperCase() === "TOTAL");
+        const idx = working.findIndex(r => String(r["Actual Batch Number"] || "").toUpperCase() === "TOTAL");
+        if (idx >= 0) totalRow = working.splice(idx, 1)[0];
+      } else if (tableKey === "courseFeeSummary") {
+        const idx = working.findIndex(r => String(r["Course Code"] || "").toUpperCase() === "TOTAL");
         if (idx >= 0) totalRow = working.splice(idx, 1)[0];
       }
       const sorted = working.sort((a, b) => {
@@ -895,7 +943,10 @@
 
       data.forEach((r, idx) => {
         const tr = document.createElement("tr");
-        if (tableKey === "feeSummary" && String(r["Batch Number"] || "").toUpperCase() === "TOTAL") {
+        if (
+          (tableKey === "feeSummary" && String(r["Actual Batch Number"] || "").toUpperCase() === "TOTAL") ||
+          (tableKey === "courseFeeSummary" && String(r["Course Code"] || "").toUpperCase() === "TOTAL")
+        ) {
           tr.classList.add("total-row");
         }
         const srTd = document.createElement("td");
@@ -923,8 +974,11 @@
       renderTable(courseTable, consolidatedRows, "course");
       renderTable(summaryTable, studentSummaryRows, "summary");
       renderTable(failedTable, failedCourseRows, "failed");
+      renderTable(latestFailedStudentsTable, latestFailedStudentRows, "latestFailedStudents");
       renderTable(feeTable, feeApplicableRows, "fee");
       renderTable(feeSummaryTable, feeSummaryRows, "feeSummary");
+      renderTable(feeStudentDetailsTable, feeStudentDetailRows, "feeStudentDetails");
+      renderTable(courseFeeSummaryTable, courseFeeSummaryRows, "courseFeeSummary");
     }
 
     function activateTab(panelId) {
@@ -945,8 +999,11 @@
         consolidatedRows = [...allCourseRows];
         studentSummaryRows = [...allStudentSummaryRows];
         failedCourseRows = [...allFailedCourseRows];
+        latestFailedStudentRows = [...allLatestFailedStudentRows];
         feeApplicableRows = [...allFeeApplicableRows];
         feeSummaryRows = [...allFeeSummaryRows];
+        feeStudentDetailRows = [...allFeeStudentDetailRows];
+        courseFeeSummaryRows = [...allCourseFeeSummaryRows];
       } else {
         consolidatedRows = allCourseRows.filter(r => {
           const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
@@ -965,12 +1022,27 @@
           return okId && okCourse;
         });
 
+        latestFailedStudentRows = allLatestFailedStudentRows.filter(r => {
+          const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
+          const okCourse = !courseQ || String(r["Latest Failed Courses"] || "").toUpperCase().includes(courseQ);
+          return okId && okCourse;
+        });
+
         feeApplicableRows = allFeeApplicableRows.filter(r => {
           const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
           const okCourse = !courseQ || String(r["Course Code"] || "").toUpperCase().includes(courseQ);
           return okId && okCourse;
         });
         feeSummaryRows = buildFeeReceivableSummary(feeApplicableRows);
+        feeStudentDetailRows = allFeeStudentDetailRows.filter(r => {
+          const okId = !idQ || String(r["Unique Id"] || "").toUpperCase().includes(idQ);
+          const okCourse = !courseQ || String(r["Course Code"] || "").toUpperCase().includes(courseQ);
+          return okId && okCourse;
+        });
+        courseFeeSummaryRows = allCourseFeeSummaryRows.filter(r => {
+          const okCourse = !courseQ || String(r["Course Code"] || "").toUpperCase().includes(courseQ);
+          return okCourse;
+        });
       }
       renderAllTables();
     }
@@ -1092,18 +1164,41 @@
       return m ? `Batch ${m[1]}` : "Batch Unknown";
     }
 
+    function getReportCutoffFromFileName(fileName) {
+      const name = String(fileName || "");
+      const m = name.match(/\b(I\d+)\s+(20\d{2})\b/i);
+      if (!m) return null;
+      return {
+        level: String(m[1] || "").toUpperCase(),
+        levelSort: getLevelSortValue(m[1]),
+        year: Number(m[2])
+      };
+    }
+
+    function isRowWithinReportCutoff(row, cutoff) {
+      if (!cutoff) return true;
+      const rowYear = Number(String(row["Term Batch Number"] || "").slice(0, 4));
+      const rowLevelSort = getLevelSortValue(row["L Level"]);
+      if (!Number.isFinite(rowYear)) return true;
+      if (rowYear < cutoff.year) return true;
+      if (rowYear > cutoff.year) return false;
+      return rowLevelSort <= cutoff.levelSort;
+    }
+
     async function extractAndConsolidate(file) {
       const data = new Uint8Array(await file.arrayBuffer());
       const pdf = await pdfjsLib.getDocument({ data }).promise;
       const rows = [];
       const fileBatchNumber = getBatchNumberFromFileName(file.name);
+      const reportCutoff = getReportCutoffFromFileName(file.name);
 
       for (let page = 1; page <= pdf.numPages; page += 1) {
         const p = await pdf.getPage(page);
         const content = await p.getTextContent();
         const lines = textItemsToLines(content.items);
         const rawText = content.items.map(i => i.str || "").join(" ");
-        const pageRows = parseStudentPage(lines, rawText, fileBatchNumber);
+        const pageRows = parseStudentPage(lines, rawText, fileBatchNumber)
+          .filter(row => isRowWithinReportCutoff(row, reportCutoff));
         for (const row of pageRows) {
           row["Actual Batch Number"] = getActualBatchNumber(row["Unique Id"]);
         }
@@ -1276,12 +1371,16 @@
     function buildFeeReceivableSummary(feeRows) {
       const map = new Map();
       for (const r of feeRows) {
-        const batch = r["Batch Number"] || "Batch Unknown";
         const actualBatch = String(r["Actual Batch Number"] || "").trim();
-        if (!map.has(batch)) {
-          map.set(batch, {
-            batch,
-            actualBatch,
+        const courseCode = String(r["Course Code"] || "").trim();
+        const pdfBatch = String(r["Batch Number"] || "").trim() || "Batch Unknown";
+        const groupBatch = actualBatch || "Batch Unknown";
+        const key = `${groupBatch}::${courseCode}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            batch: groupBatch,
+            courseCode,
+            pdfBatches: new Set(),
             students: new Set(),
             payableAttempts: 0,
             amountExcl: 0,
@@ -1289,10 +1388,8 @@
             amountIncl: 0
           });
         }
-        const x = map.get(batch);
-        if (!x.actualBatch && actualBatch) {
-          x.actualBatch = actualBatch;
-        }
+        const x = map.get(key);
+        addBatchValues(x.pdfBatches, pdfBatch);
         x.students.add(String(r["Unique Id"] || ""));
         x.payableAttempts += Number(r["Payable Retake Attempts"] || 0);
         x.amountExcl += Number(r["Amount (Excl GST)"] || 0);
@@ -1301,8 +1398,9 @@
       }
 
       const rows = Array.from(map.values()).map(x => ({
-        "Batch Number": x.batch,
-        "Actual Batch Number": x.actualBatch || "",
+        "Actual Batch Number": x.batch,
+        "Course Code": x.courseCode,
+        "Batch Number": joinBatchValues(x.pdfBatches),
         "No. of Students": x.students.size,
         "Payable Retake Attempts": x.payableAttempts,
         "Amount (Excl GST)": Number(x.amountExcl.toFixed(2)),
@@ -1318,7 +1416,9 @@
         acc["Amount (Incl GST)"] += Number(r["Amount (Incl GST)"] || 0);
         return acc;
       }, {
-        "Batch Number": "Total",
+        "Actual Batch Number": "Total",
+        "Course Code": "",
+        "Batch Number": "",
         "No. of Students": 0,
         "Payable Retake Attempts": 0,
         "Amount (Excl GST)": 0,
@@ -1333,6 +1433,180 @@
       return [...rows, total];
     }
 
+    function buildLatestFailedStudentRows(courseRows) {
+      const map = new Map();
+      for (const r of courseRows) {
+        if (r["Failed Course"] !== "Yes") continue;
+        const key = getStudentGroupKey(r);
+        if (!map.has(key)) {
+          map.set(key, {
+            sid: r["Unique Id"],
+            pdfBatches: new Set(),
+            actualBatchNumber: r["Actual Batch Number"],
+            name: r["Name"],
+            gpa: r["Overall GPA"],
+            totalHoursPassed: r["Total Hours Passed"],
+            totalHoursAttempted: r["Total Hours Attempted"],
+            failedCourses: [],
+            payableRetakeAttempts: 0
+          });
+        }
+        const x = map.get(key);
+        addBatchValues(x.pdfBatches, r["Batch Number"]);
+        x.failedCourses.push({
+          courseCode: r["Course Code"],
+          latestGrade: r["Latest Grade"],
+          failedAttempts: Number(r["Failed Attempts"] || 0)
+        });
+      }
+
+      return Array.from(map.values()).map(x => ({
+        "Unique Id": x.sid,
+        "Batch Number": joinBatchValues(x.pdfBatches),
+        "Actual Batch Number": x.actualBatchNumber || "",
+        "Name": x.name,
+        "Overall GPA": x.gpa,
+        "Total Hours Passed": x.totalHoursPassed,
+        "Total Hours Attempted": x.totalHoursAttempted,
+        "Failed Courses Count": x.failedCourses.length,
+        "Latest Failed Courses": x.failedCourses.map(c => c.courseCode).join(", "),
+        "Latest Failed Grades": x.failedCourses.map(c => `${c.courseCode}: ${c.latestGrade}`).join(", "),
+        "Failed Attempts": x.failedCourses.reduce((acc, c) => acc + c.failedAttempts, 0)
+      }));
+    }
+
+    function buildFeeStudentDetailRows(feeRows) {
+      return feeRows.map(r => ({
+        "Actual Batch Number": r["Actual Batch Number"] || "",
+        "Course Code": r["Course Code"],
+        "Batch Number": r["Batch Number"],
+        "Unique Id": r["Unique Id"],
+        "Name": r["Name"],
+        "Latest Grade": r["Latest Grade"],
+        "Attempt Count": r["Attempt Count"],
+        "Failed Attempts": r["Failed Attempts"],
+        "Retake Attempts": r["Retake Attempts"],
+        "Payable Retake Attempts": r["Payable Retake Attempts"],
+        "Amount (Excl GST)": r["Amount (Excl GST)"],
+        "GST Amount": r["GST Amount"],
+        "Amount (Incl GST)": r["Amount (Incl GST)"]
+      }));
+    }
+
+    function buildCourseFeeSummaryRows(courseRows, feeRows) {
+      const feeMap = new Map();
+      for (const r of feeRows) {
+        const key = `${getStudentGroupKey(r)}::${r["Course Code"]}`;
+        feeMap.set(key, r);
+      }
+
+      const map = new Map();
+      for (const r of courseRows) {
+        if (r["Failed Course"] !== "Yes") continue;
+        const courseCode = String(r["Course Code"] || "").trim();
+        if (!map.has(courseCode)) {
+          map.set(courseCode, {
+            courseCode,
+            feeApplicableCount: 0,
+            feeNotApplicableCount: 0,
+            totalFailedCount: 0,
+            totalFeeReceivable: 0
+          });
+        }
+        const x = map.get(courseCode);
+        x.totalFailedCount += 1;
+        const feeRow = feeMap.get(`${getStudentGroupKey(r)}::${courseCode}`);
+        const isApplicable = feeRow?.["Fee Applicable"] === "Yes";
+        if (isApplicable) {
+          x.feeApplicableCount += 1;
+        } else {
+          x.feeNotApplicableCount += 1;
+        }
+        x.totalFeeReceivable += Number(feeRow?.["Amount (Incl GST)"] || 0);
+      }
+
+      const rows = Array.from(map.values()).map(x => ({
+        "Course Code": x.courseCode,
+        "Retake Fee Applicable Student Count": x.feeApplicableCount,
+        "Retake Fee Not Applicable Student Count": x.feeNotApplicableCount,
+        "Total Failed Student Count": x.totalFailedCount,
+        "Total Fee Receivable": Number(x.totalFeeReceivable.toFixed(2))
+      }));
+
+      const total = rows.reduce((acc, r) => {
+        acc["Retake Fee Applicable Student Count"] += Number(r["Retake Fee Applicable Student Count"] || 0);
+        acc["Retake Fee Not Applicable Student Count"] += Number(r["Retake Fee Not Applicable Student Count"] || 0);
+        acc["Total Failed Student Count"] += Number(r["Total Failed Student Count"] || 0);
+        acc["Total Fee Receivable"] += Number(r["Total Fee Receivable"] || 0);
+        return acc;
+      }, {
+        "Course Code": "Total",
+        "Retake Fee Applicable Student Count": 0,
+        "Retake Fee Not Applicable Student Count": 0,
+        "Total Failed Student Count": 0,
+        "Total Fee Receivable": 0
+      });
+
+      total["Total Fee Receivable"] = Number(total["Total Fee Receivable"].toFixed(2));
+      return [...rows, total];
+    }
+
+    function getFailGradesFromAllGrades(allGrades) {
+      return String(allGrades || "")
+        .split(",")
+        .map(x => x.trim())
+        .filter(Boolean)
+        .filter(g => isFailGrade(g === "Blank" ? "" : g));
+    }
+
+    function buildCourseWiseDownloadRows(courseRows, feeRows) {
+      const feeMap = new Map();
+      for (const r of feeRows) {
+        const key = `${getStudentGroupKey(r)}::${r["Course Code"]}`;
+        feeMap.set(key, r);
+      }
+
+      return courseRows
+        .filter(r => r["Failed Course"] === "Yes")
+        .map(r => {
+          const feeRow = feeMap.get(`${getStudentGroupKey(r)}::${r["Course Code"]}`);
+          const failGrades = getFailGradesFromAllGrades(r["All Grades"]);
+          return {
+            "Course Code": r["Course Code"],
+            "Actual Batch Number": r["Actual Batch Number"] || "",
+            "Batch Number": r["Batch Number"],
+            "Unique Id": r["Unique Id"],
+            "Name": r["Name"],
+            "Latest Failed Grade": r["Latest Grade"],
+            "All Time Fail Grades": failGrades.join(", "),
+            "Attempt Count": r["Attempt Count"],
+            "Failed Attempts": r["Failed Attempts"],
+            "Fee Applicable": feeRow?.["Fee Applicable"] || "No",
+            "Fee Amount (Excl GST)": Number(feeRow?.["Amount (Excl GST)"] || 0),
+            "GST Amount": Number(feeRow?.["GST Amount"] || 0),
+            "Fee Amount (Incl GST)": Number(feeRow?.["Amount (Incl GST)"] || 0)
+          };
+        });
+    }
+
+    function makeSheetName(name, used) {
+      let base = String(name || "Sheet")
+        .replace(/[\\/*?:[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!base) base = "Sheet";
+      base = base.slice(0, 31);
+      let candidate = base;
+      let counter = 2;
+      while (used.has(candidate.toUpperCase())) {
+        const suffix = ` ${counter}`;
+        candidate = `${base.slice(0, Math.max(31 - suffix.length, 1)).trimEnd()}${suffix}`;
+        counter += 1;
+      }
+      used.add(candidate.toUpperCase());
+      return candidate;
+    }
+
     function buildStudentSummary(courseRows, feeRows) {
       const map = new Map();
       for (const r of courseRows) {
@@ -1345,6 +1619,8 @@
             actualBatchNumber: r["Actual Batch Number"],
             name: r["Name"],
             gpa: r["Overall GPA"],
+            totalHoursPassed: r["Total Hours Passed"],
+            totalHoursAttempted: r["Total Hours Attempted"],
             totalCourses: 0,
             failedCourses: 0,
             totalFailedAttempts: 0,
@@ -1380,9 +1656,11 @@
         const key = `${String(s.sid || "").trim().toUpperCase()}::${String(s.actualBatchNumber || "").trim().toUpperCase()}`;
         const studentFeeRows = feeByStudent.get(key) || [];
         const studentCourseRows = courseByStudent.get(key) || [];
-        const freeUsed = studentCourseRows.some(x => Number(x["Attempt Count"] || 0) > 1);
-        s.freeRetakeConsumed = freeUsed ? "Yes" : "No";
-        s.freeRetakeCourses = freeUsed ? 1 : 0;
+        const totalStudentRetakeAttempts = studentCourseRows.reduce((acc, x) =>
+          acc + Number(x["Retake Attempts"] || 0), 0
+        );
+        s.freeRetakeConsumed = totalStudentRetakeAttempts > 0 ? "Yes" : "No";
+        s.freeRetakeCourses = studentFeeRows.reduce((acc, x) => acc + Number(x["Free Retake Attempts"] || 0), 0);
         s.payableCourses = studentFeeRows.reduce((acc, x) => acc + Number(x["Payable Retake Attempts"] || 0), 0);
         return {
           "Unique Id": s.sid,
@@ -1390,7 +1668,10 @@
           "Actual Batch Number": s.actualBatchNumber || "",
           "Name": s.name,
           "Overall GPA": s.gpa,
+          "Total Hours Passed": s.totalHoursPassed,
+          "Total Hours Attempted": s.totalHoursAttempted,
           "Total Courses": s.totalCourses,
+          "Passed Courses": Math.max(s.totalCourses - s.failedCourses, 0),
           "Failed Courses": s.failedCourses,
           "Free Retake Consumed": s.freeRetakeConsumed,
           "Free Retake Attempts": s.freeRetakeCourses,
@@ -1430,10 +1711,14 @@
         const failedRows = rows.filter(r => r["Failed Course"] === "Yes");
         if (!failedRows.length) continue;
 
-        const freeConsumed = rows.some(r => Number(r["Attempt Count"] || 0) > 1);
+        const totalStudentRetakeAttempts = rows.reduce((acc, r) =>
+          acc + Number(r["Retake Attempts"] || 0), 0
+        );
+        const freeConsumed = totalStudentRetakeAttempts > 0;
+        const freeRetakeSlots = freeConsumed ? 0 : 1;
 
         let freeCourseCode = "";
-        if (!freeConsumed) {
+        if (freeRetakeSlots > 0) {
           const sortedFailed = [...failedRows].sort((a, b) => {
             const aa = Number(b["Attempt Count"] || 0) - Number(a["Attempt Count"] || 0);
             if (aa !== 0) return aa;
@@ -1443,7 +1728,7 @@
         }
 
         for (const r of failedRows) {
-          const isFree = !freeConsumed && freeCourseCode && r["Course Code"] === freeCourseCode;
+          const isFree = freeRetakeSlots > 0 && freeCourseCode && r["Course Code"] === freeCourseCode;
           const payableRetakeAttempts = isFree ? 0 : 1;
           const amountExcl = payableRetakeAttempts * FEE_PER_COURSE;
           const gstAmount = Number((amountExcl * GST_RATE).toFixed(2));
@@ -1480,23 +1765,33 @@
       }
 
       downloadBtn.disabled = true;
+      downloadCourseWiseBtn.disabled = true;
       applySearchBtn.disabled = true;
       clearSearchBtn.disabled = true;
       consolidatedRows = [];
       studentSummaryRows = [];
       failedCourseRows = [];
+      latestFailedStudentRows = [];
       feeApplicableRows = [];
       feeSummaryRows = [];
+      feeStudentDetailRows = [];
+      courseFeeSummaryRows = [];
       allCourseRows = [];
       allStudentSummaryRows = [];
       allFailedCourseRows = [];
+      allLatestFailedStudentRows = [];
       allFeeApplicableRows = [];
       allFeeSummaryRows = [];
+      allFeeStudentDetailRows = [];
+      allCourseFeeSummaryRows = [];
       renderTable(courseTable, [], "course");
       renderTable(summaryTable, [], "summary");
       renderTable(failedTable, [], "failed");
+      renderTable(latestFailedStudentsTable, [], "latestFailedStudents");
       renderTable(feeTable, [], "fee");
       renderTable(feeSummaryTable, [], "feeSummary");
+      renderTable(feeStudentDetailsTable, [], "feeStudentDetails");
+      renderTable(courseFeeSummaryTable, [], "courseFeeSummary");
       setStatus(`Reading ${files.length} PDF file(s) and extracting student/course rows...`, "ok");
 
       try {
@@ -1514,14 +1809,20 @@
         const feeAllRows = buildFeeApplicableCourses(consolidatedRows, studentIdFilter);
         applyFeeFlagToCourseAttempts(consolidatedRows, feeAllRows);
         failedCourseRows = consolidatedRows.filter(x => x["Failed Course"] === "Yes");
+        latestFailedStudentRows = buildLatestFailedStudentRows(consolidatedRows);
         feeApplicableRows = feeAllRows.filter(x => x["Fee Applicable"] === "Yes");
         feeSummaryRows = buildFeeReceivableSummary(feeApplicableRows);
+        feeStudentDetailRows = buildFeeStudentDetailRows(feeApplicableRows);
+        courseFeeSummaryRows = buildCourseFeeSummaryRows(consolidatedRows, feeAllRows);
         studentSummaryRows = buildStudentSummary(consolidatedRows, feeAllRows);
         allCourseRows = [...consolidatedRows];
         allStudentSummaryRows = [...studentSummaryRows];
         allFailedCourseRows = [...failedCourseRows];
+        allLatestFailedStudentRows = [...latestFailedStudentRows];
         allFeeApplicableRows = [...feeApplicableRows];
         allFeeSummaryRows = [...feeSummaryRows];
+        allFeeStudentDetailRows = [...feeStudentDetailRows];
+        allCourseFeeSummaryRows = [...courseFeeSummaryRows];
         if (!consolidatedRows.length) {
           setStatus("No rows found for the entered Student ID.", "warn");
           return;
@@ -1529,6 +1830,7 @@
 
         renderAllTables();
         downloadBtn.disabled = false;
+        downloadCourseWiseBtn.disabled = false;
         applySearchBtn.disabled = false;
         clearSearchBtn.disabled = false;
 
@@ -1556,15 +1858,53 @@
       const ws2 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(studentSummaryRows)));
       const ws3 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(feeApplicableRows)));
       const ws4 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(failedCourseRows)));
-      const ws5 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(feeSummaryRows)));
+      const ws5 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(latestFailedStudentRows)));
+      const ws6 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(feeSummaryRows)));
+      const ws7 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(feeStudentDetailRows)));
+      const ws8 = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(courseFeeSummaryRows)));
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Course Attempts");
       XLSX.utils.book_append_sheet(wb, ws2, "Student Summary");
       XLSX.utils.book_append_sheet(wb, ws4, "Failed Courses");
+      XLSX.utils.book_append_sheet(wb, ws5, "Students Latest Failed");
       XLSX.utils.book_append_sheet(wb, ws3, "Fee Applicable Courses");
-      XLSX.utils.book_append_sheet(wb, ws5, "Fee Receivable Summary");
+      XLSX.utils.book_append_sheet(wb, ws6, "Fee Receivable Summary");
+      XLSX.utils.book_append_sheet(wb, ws7, "Fee Student Details");
+      XLSX.utils.book_append_sheet(wb, ws8, "Course Fee Summary");
       XLSX.writeFile(wb, "GPA_Consolidated.xlsx");
       setStatus("Excel file downloaded successfully.", "ok");
+    });
+
+    downloadCourseWiseBtn.addEventListener("click", () => {
+      if (!consolidatedRows.length) {
+        setStatus("No processed data available for course-wise export.", "warn");
+        return;
+      }
+
+      const rows = buildCourseWiseDownloadRows(allCourseRows, buildFeeApplicableCourses(allCourseRows, ""));
+      if (!rows.length) {
+        setStatus("No latest failed students available for course-wise export.", "warn");
+        return;
+      }
+
+      const byCourse = new Map();
+      for (const r of rows) {
+        const courseCode = String(r["Course Code"] || "").trim() || "Unknown Course";
+        if (!byCourse.has(courseCode)) byCourse.set(courseCode, []);
+        byCourse.get(courseCode).push(r);
+      }
+
+      const wb = XLSX.utils.book_new();
+      const usedNames = new Set();
+      Array.from(byCourse.entries())
+        .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+        .forEach(([courseCode, courseRows]) => {
+          const ws = XLSX.utils.json_to_sheet(addSerialNumber(mapExportRows(courseRows)));
+          XLSX.utils.book_append_sheet(wb, ws, makeSheetName(courseCode, usedNames));
+        });
+
+      XLSX.writeFile(wb, "Course_Wise_Latest_Failed_Students.xlsx");
+      setStatus("Course-wise student workbook downloaded successfully.", "ok");
     });
 
     applySearchBtn.addEventListener("click", () => {
