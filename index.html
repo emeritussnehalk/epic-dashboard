@@ -408,7 +408,7 @@
             </tr>
             <tr>
               <td>Passed Students List</td>
-              <td class="report-desc">Downloads students whose course statuses are only passed or completed. Completed students are included here.</td>
+              <td class="report-desc">Downloads students whose course statuses are passed, not found, or eligible for convocation. Not Found students are included here.</td>
               <td class="report-action"><button id="downloadPassedReportBtn" class="ghost" disabled>Download</button></td>
             </tr>
           </tbody>
@@ -1815,12 +1815,12 @@
           } else if (studentsInReport.has(studentId)) {
             exportRow[courseCode] = "Prospective";
           } else {
-            exportRow[courseCode] = "Completed";
+            exportRow[courseCode] = "Not Found";
           }
         }
         if (uniqueCourseCodes.length > 0 && passedCourseCount === uniqueCourseCodes.length) {
           for (const courseCode of uniqueCourseCodes) {
-            exportRow[courseCode] = "Completed";
+            exportRow[courseCode] = "Eligible for Convocation";
           }
         }
         return exportRow;
@@ -1842,7 +1842,9 @@
         const counts = {
           "Course Code": courseCode,
           "Prospective": 0,
-          "Passed / Completed": 0,
+          "Passed": 0,
+          "Eligible for Convocation": 0,
+          "Not Found": 0,
           "Failed": 0
         };
 
@@ -1852,8 +1854,12 @@
             counts["Prospective"] += 1;
           } else if (status === "Failed") {
             counts["Failed"] += 1;
-          } else if (status === "Passed" || status === "Completed") {
-            counts["Passed / Completed"] += 1;
+          } else if (status === "Passed") {
+            counts["Passed"] += 1;
+          } else if (status === "Eligible for Convocation") {
+            counts["Eligible for Convocation"] += 1;
+          } else if (status === "Not Found") {
+            counts["Not Found"] += 1;
           }
         }
 
@@ -1871,7 +1877,11 @@
         if (type === "prospective") return statuses.includes("Prospective");
         if (type === "failed") return statuses.includes("Failed");
         if (type === "passed") {
-          return statuses.every(status => status === "Passed" || status === "Completed");
+          return statuses.every(status =>
+            status === "Passed" ||
+            status === "Not Found" ||
+            status === "Eligible for Convocation"
+          );
         }
         return false;
       });
