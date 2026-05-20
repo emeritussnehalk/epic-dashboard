@@ -169,6 +169,13 @@
       color: #07854a;
       font-weight: 700;
     }
+    .prior-pass-title {
+      color: #07854a;
+      font-weight: 700;
+      background: #dcfae6;
+      padding: 1px 3px;
+      border-radius: 3px;
+    }
     th {
       background: #f2f4f7;
       position: sticky;
@@ -432,7 +439,8 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs" type="module"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
   <script type="module">
     import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.mjs";
@@ -1300,6 +1308,25 @@
         });
         return true;
       }
+      if (column === "Title" && Array.isArray(meta.titleTimeline) && meta.titleTimeline.length) {
+        const highlightTitles = new Set(
+          meta.titleTimeline
+            .filter(titleEntry => titleEntry.highlightPass)
+            .map(titleEntry => titleEntry.title)
+        );
+        splitTitleValues(row[column]).forEach((title, idx) => {
+          if (idx > 0) td.appendChild(document.createTextNode(", "));
+          if (highlightTitles.has(title)) {
+            const span = document.createElement("span");
+            span.className = "prior-pass-title";
+            span.textContent = title;
+            td.appendChild(span);
+          } else {
+            td.appendChild(document.createTextNode(title));
+          }
+        });
+        return true;
+      }
       return false;
     }
 
@@ -1576,6 +1603,55 @@
       };
     }
 
+    function getReportTitleFromFileName(fileName) {
+      const cutoff = getReportCutoffFromFileName(fileName);
+      if (!cutoff) return "";
+      const batch = getBatchNumberFromFileName(fileName).match(/\d+/)?.[0] || "";
+      return `${batch ? `B${batch}` : "BU"} ${cutoff.level} ${cutoff.year}`;
+    }
+
+    function titleSortValue(value) {
+      const m = String(value || "").match(/(?:\bB(\d+)|\bBU)?\s*\bI(\d+)\s+(20\d{2})\b/i);
+      if (!m) return Number.MAX_SAFE_INTEGER;
+      const batch = m[1] ? Number(m[1]) : 0;
+      return Number(m[3]) * 10000 + Number(m[2]) * 100 + batch;
+    }
+
+    function splitTitleValues(value) {
+      return String(value || "")
+        .split(",")
+        .map(part => part.trim())
+        .filter(Boolean);
+    }
+
+    function addTitleValues(target, value) {
+      splitTitleValues(value).forEach(title => target.add(title));
+    }
+
+    function joinTitleValues(values) {
+      return Array.from(values)
+        .filter(Boolean)
+        .sort((a, b) => {
+          const diff = titleSortValue(a) - titleSortValue(b);
+          if (diff !== 0) return diff;
+          return String(a).localeCompare(String(b), undefined, { numeric: true });
+        })
+        .join(", ");
+    }
+
+    function formatAttemptGradeLabel(attempt) {
+      const title = joinTitleValues(attempt.titles || new Set());
+      const grade = blankLabel(attempt.grade);
+      return title ? `${title}: ${grade}` : grade;
+    }
+
+    function attemptReportSortValue(attempt) {
+      const values = Array.from(attempt.titles || [])
+        .map(titleSortValue)
+        .filter(value => value !== Number.MAX_SAFE_INTEGER);
+      return values.length ? Math.max(...values) : 0;
+    }
+
     function isRowWithinReportCutoff(row, cutoff) {
       if (!cutoff) return true;
       const rowYear = Number(String(row["Term Batch Number"] || "").slice(0, 4));
@@ -1592,6 +1668,7 @@
       const rows = [];
       const fileBatchNumber = getBatchNumberFromFileName(file.name);
       const reportCutoff = getReportCutoffFromFileName(file.name);
+      const reportTitle = getReportTitleFromFileName(file.name);
 
       for (let page = 1; page <= pdf.numPages; page += 1) {
         const p = await pdf.getPage(page);
@@ -1602,6 +1679,7 @@
           .filter(row => isRowWithinReportCutoff(row, reportCutoff));
         for (const row of pageRows) {
           row["Actual Batch Number"] = getActualBatchNumber(row["Unique Id"]);
+          row["Title"] = reportTitle;
           if (!String(row["Name"] || "").trim()) {
             row["Name"] = getHardcodedStudentName(row["Unique Id"]);
           }
@@ -1615,6 +1693,7 @@
         const key = [
           row["Unique Id"],
           row["Batch Number"],
+          row["Title"],
           row["Term Batch Number"],
           row["L Level"],
           row["Course Code"],
@@ -1641,6 +1720,7 @@
         const key = [
           row["Unique Id"],
           row["Batch Number"],
+          row["Title"],
           row["Term Batch Number"],
           row["L Level"],
           row["Course Code"],
@@ -1677,8 +1757,10 @@
             latestGrade: "",
             termBatchNumbers: new Set(),
             pdfBatches: new Set(),
+            titles: new Set(),
             attempts: [],
             attemptKeys: new Set(),
+            attemptMap: new Map(),
             seq: 0
           });
         }
@@ -1688,6 +1770,7 @@
         const levelSort = getLevelSortValue(r["L Level"]);
         x.termBatchNumbers.add(blankLabel(r["Term Batch Number"]));
         addBatchValues(x.pdfBatches, r["Batch Number"]);
+        addTitleValues(x.titles, r["Title"]);
         const attemptKey = [
           blankLabel(r["Term Batch Number"]),
           blankLabel(r["L Level"]),
@@ -1696,17 +1779,24 @@
         if (!x.attemptKeys.has(attemptKey)) {
           x.attemptKeys.add(attemptKey);
           x.seq += 1;
-          x.attempts.push({
+          const attempt = {
             grade,
             termSort,
             levelSort,
-            seq: x.seq
-          });
+            seq: x.seq,
+            titles: new Set()
+          };
+          addTitleValues(attempt.titles, r["Title"]);
+          x.attemptMap.set(attemptKey, attempt);
+          x.attempts.push(attempt);
+        } else {
+          addTitleValues(x.attemptMap.get(attemptKey).titles, r["Title"]);
         }
       }
 
       return Array.from(map.values()).map(x => {
         const orderedAttempts = [...x.attempts].sort((a, b) =>
+          attemptReportSortValue(a) - attemptReportSortValue(b) ||
           a.termSort - b.termSort ||
           a.levelSort - b.levelSort ||
           a.seq - b.seq
@@ -1720,6 +1810,14 @@
           .map((attempt, idx) => isPassingGrade(attempt.grade) ? idx : -1)
           .filter(idx => idx >= 0);
         const hasPriorPassBeforeLatestFail = latestIsFail && priorPassIndexes.length > 0;
+        const priorPassTitles = hasPriorPassBeforeLatestFail
+          ? priorAttempts
+              .filter(attempt => isPassingGrade(attempt.grade))
+              .flatMap(attempt => Array.from(attempt.titles || []))
+          : [];
+        const latestFailTitles = hasPriorPassBeforeLatestFail
+          ? Array.from(latestAttempt.titles || [])
+          : [];
         const effectiveAttempts = hasPriorPassBeforeLatestFail ? orderedAttempts.slice(0, -1) : orderedAttempts;
         const effectiveAttemptCount = effectiveAttempts.length;
         const effectiveFailedAttempts = effectiveAttempts.reduce((count, attempt) =>
@@ -1730,6 +1828,7 @@
           "Unique Id": x.sid,
           "Batch Number": joinBatchValues(x.pdfBatches),
           "Actual Batch Number": x.actualBatchNumber || "",
+          "Title": joinTitleValues(x.titles),
           "Name": x.name,
           "Overall GPA": x.gpa,
           "Total Hours Passed": x.passed,
@@ -1749,8 +1848,17 @@
           highlightLatestGrade: hasPriorPassBeforeLatestFail,
           gradeTimeline: orderedAttempts.map((attempt, idx) => ({
             grade: blankLabel(attempt.grade),
+            label: formatAttemptGradeLabel(attempt),
             highlightPass: hasPriorPassBeforeLatestFail && idx < orderedAttempts.length - 1 && isPassingGrade(attempt.grade)
-          }))
+          })),
+          titleTimeline: orderedAttempts.flatMap((attempt, idx) =>
+            Array.from(attempt.titles || []).map(title => ({
+              title,
+              highlightPass: hasPriorPassBeforeLatestFail && idx < orderedAttempts.length - 1 && isPassingGrade(attempt.grade)
+            }))
+          ),
+          priorPassTitles,
+          latestFailTitles
         });
       });
     }
@@ -1784,6 +1892,8 @@
       const studentCourseStatus = new Map();
       const studentsInReport = new Set();
       const studentNameMap = new Map();
+      const studentPdfBatchMap = new Map();
+      const studentTitleMap = new Map();
 
       for (const row of courseRows) {
         const studentId = String(row["Unique Id"] || "").trim().toUpperCase();
@@ -1793,6 +1903,14 @@
         if (!studentNameMap.has(studentId)) {
           studentNameMap.set(studentId, String(row["Name"] || "").trim());
         }
+        if (!studentPdfBatchMap.has(studentId)) {
+          studentPdfBatchMap.set(studentId, new Set());
+        }
+        if (!studentTitleMap.has(studentId)) {
+          studentTitleMap.set(studentId, new Set());
+        }
+        addBatchValues(studentPdfBatchMap.get(studentId), row["Batch Number"]);
+        addTitleValues(studentTitleMap.get(studentId), row["Title"]);
         studentCourseStatus.set(
           `${studentId}::${courseCode}`,
           row["Failed Course"] === "Yes" ? "Failed" : "Passed"
@@ -1832,7 +1950,9 @@
       return Object.keys(firstRow).filter(k =>
         k !== "BO Id" &&
         k !== "Student Name" &&
-        k !== "Actual Batch Number"
+        k !== "Actual Batch Number" &&
+        k !== "Title" &&
+        k !== "PDF Batch Number"
       );
     }
 
@@ -1865,6 +1985,605 @@
 
         return counts;
       });
+    }
+
+    function getStatusFill(status) {
+      const normalized = String(status || "").trim();
+      if (normalized === "Passed" || normalized === "Eligible for Convocation") return "DCFCE7";
+      if (normalized === "Failed") return "FEE2E2";
+      if (normalized === "Not Found") return "FFEDD5";
+      if (normalized === "Prospective") return "DBEAFE";
+      return "";
+    }
+
+    function mergeCellStyle(cell, style) {
+      cell.s = {
+        ...(cell.s || {}),
+        ...style,
+        font: {
+          ...((cell.s || {}).font || {}),
+          ...(style.font || {})
+        }
+      };
+    }
+
+    function applyStudentMatrixStyles(ws, statusRows, options = {}) {
+      if (!statusRows.length) return;
+      const courseColumns = getStatusCourseColumns(statusRows);
+      const headers = Object.keys(statusRows[0] || {});
+      const headerToIndex = new Map(headers.map((header, idx) => [header, idx]));
+      const specialFailKeys = options.specialFailKeys || new Set();
+
+      courseColumns.forEach(courseCode => {
+        const colIdx = headerToIndex.get(courseCode);
+        if (colIdx === undefined) return;
+        statusRows.forEach((row, rowIdx) => {
+          const status = String(row[courseCode] || "").trim();
+          const fill = getStatusFill(status);
+          const cellRef = XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx });
+          const cell = ws[cellRef];
+          if (!cell) return;
+          if (fill) {
+            mergeCellStyle(cell, {
+              fill: { patternType: "solid", fgColor: { rgb: fill } }
+            });
+          }
+          const studentId = String(row["BO Id"] || "").trim().toUpperCase();
+          if (specialFailKeys.has(`${studentId}::${courseCode}`)) {
+            mergeCellStyle(cell, {
+              font: { bold: true, color: { rgb: "B91C1C" } }
+            });
+          }
+        });
+      });
+    }
+
+    function buildStudentLatestGradeRows(courseRows, statusRows) {
+      const gradeMap = new Map();
+      const specialFailKeys = new Set();
+      const specialTitlesByStudent = new Map();
+      const attemptTimelineByKey = new Map();
+      for (const row of courseRows) {
+        const studentId = String(row["Unique Id"] || "").trim().toUpperCase();
+        const courseCode = String(row["Course Code"] || "").trim();
+        if (!studentId || !courseCode) continue;
+        const key = `${studentId}::${courseCode}`;
+        gradeMap.set(key, row["Latest Grade"] || "");
+        attemptTimelineByKey.set(key, row.__meta?.gradeTimeline || []);
+        if (row.__meta?.highlightLatestGrade) {
+          specialFailKeys.add(key);
+          if (!specialTitlesByStudent.has(studentId)) {
+            specialTitlesByStudent.set(studentId, {
+              priorPassTitles: new Set(),
+              latestFailTitles: new Set()
+            });
+          }
+          const titleInfo = specialTitlesByStudent.get(studentId);
+          (row.__meta.priorPassTitles || []).forEach(title => titleInfo.priorPassTitles.add(title));
+          (row.__meta.latestFailTitles || []).forEach(title => titleInfo.latestFailTitles.add(title));
+        }
+      }
+
+      const courseColumns = getStatusCourseColumns(statusRows);
+      const rows = statusRows.map(statusRow => {
+        const studentId = String(statusRow["BO Id"] || "").trim().toUpperCase();
+        const out = {
+          "BO Id": statusRow["BO Id"],
+          "Student Name": statusRow["Student Name"],
+          "Actual Batch Number": statusRow["Actual Batch Number"]
+        };
+        for (const courseCode of courseColumns) {
+          const key = `${studentId}::${courseCode}`;
+          const status = String(statusRow[courseCode] || "").trim();
+          out[courseCode] = gradeMap.has(key) ? gradeMap.get(key) : status;
+        }
+        return out;
+      });
+
+      return { rows, specialFailKeys, specialTitlesByStudent, attemptTimelineByKey };
+    }
+
+    function buildStudentCourseAttemptRows(courseRows, statusRows) {
+      const attemptsMap = new Map();
+      const courseColumns = getStatusCourseColumns(statusRows);
+      for (const row of courseRows) {
+        const studentId = String(row["Unique Id"] || "").trim().toUpperCase();
+        const courseCode = String(row["Course Code"] || "").trim();
+        if (!studentId || !courseCode) continue;
+        const timeline = row.__meta?.gradeTimeline || [];
+        const labels = timeline.map(entry => entry.label || entry.grade).filter(Boolean);
+        attemptsMap.set(`${studentId}::${courseCode}`, labels.length ? labels.join(", ") : (row["All Grades"] || ""));
+      }
+
+      return statusRows.map(statusRow => {
+        const studentId = String(statusRow["BO Id"] || "").trim().toUpperCase();
+        const out = {
+          "BO Id": statusRow["BO Id"],
+          "Student Name": statusRow["Student Name"],
+          "Actual Batch Number": statusRow["Actual Batch Number"]
+        };
+        for (const courseCode of courseColumns) {
+          const key = `${studentId}::${courseCode}`;
+          const status = String(statusRow[courseCode] || "").trim();
+          out[courseCode] = attemptsMap.has(key) ? attemptsMap.get(key) : status;
+        }
+        return out;
+      });
+    }
+
+    function excelFillFromStatus(status) {
+      const fill = getStatusFill(status);
+      return fill ? `FF${fill}` : "";
+    }
+
+    function styleExcelHeaderRow(ws) {
+      const headerRow = ws.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFF2F4F7" }
+      };
+      headerRow.alignment = { vertical: "top", wrapText: true };
+    }
+
+    function autosizeExcelColumns(ws, minWidth = 12, maxWidth = 36) {
+      ws.columns.forEach(column => {
+        let width = minWidth;
+        column.eachCell({ includeEmpty: true }, cell => {
+          const value = cell.value;
+          const text = value?.richText
+            ? value.richText.map(part => part.text || "").join("")
+            : String(value ?? "");
+          width = Math.max(width, Math.min(maxWidth, text.length + 2));
+        });
+        column.width = width;
+      });
+    }
+
+    function addJsonExcelWorksheet(wb, name, rows) {
+      const ws = wb.addWorksheet(name);
+      const headers = Object.keys(rows[0] || {});
+      ws.addRow(headers);
+      rows.forEach(row => {
+        ws.addRow(headers.map(header => row[header] ?? ""));
+      });
+      styleExcelHeaderRow(ws);
+      autosizeExcelColumns(ws);
+      return ws;
+    }
+
+    function addAoaExcelWorksheet(wb, name, rows) {
+      const ws = wb.addWorksheet(name);
+      rows.forEach(row => ws.addRow(row));
+      if (rows.length) styleExcelHeaderRow(ws);
+      autosizeExcelColumns(ws);
+      return ws;
+    }
+
+    function applyExcelStudentMatrixStyles(ws, statusRows, options = {}) {
+      if (!statusRows.length) return;
+      const courseColumns = getStatusCourseColumns(statusRows);
+      const headers = ws.getRow(1).values.slice(1);
+      const headerToIndex = new Map(headers.map((header, idx) => [header, idx + 1]));
+      const specialFailKeys = options.specialFailKeys || new Set();
+
+      courseColumns.forEach(courseCode => {
+        const colIdx = headerToIndex.get(courseCode);
+        if (!colIdx) return;
+        statusRows.forEach((row, rowIdx) => {
+          const cell = ws.getCell(rowIdx + 2, colIdx);
+          const fill = excelFillFromStatus(row[courseCode]);
+          if (fill) {
+            cell.fill = {
+              type: "pattern",
+              pattern: "solid",
+              fgColor: { argb: fill }
+            };
+          }
+          const studentId = String(row["BO Id"] || "").trim().toUpperCase();
+          if (specialFailKeys.has(`${studentId}::${courseCode}`)) {
+            cell.font = { ...(cell.font || {}), bold: true, color: { argb: "FFB91C1C" } };
+          }
+        });
+      });
+    }
+
+    function applyExcelSpecialTitleStyles(ws, rows, specialTitlesByStudent) {
+      if (!rows.length || !specialTitlesByStudent?.size) return;
+      const headers = ws.getRow(1).values.slice(1);
+      const titleCol = headers.indexOf("Title") + 1;
+      if (!titleCol) return;
+
+      rows.forEach((row, rowIdx) => {
+        const studentId = String(row["BO Id"] || "").trim().toUpperCase();
+        const titleInfo = specialTitlesByStudent.get(studentId);
+        if (!titleInfo) return;
+        const parts = splitTitleValues(row["Title"]);
+        if (!parts.length) return;
+
+        const richText = [];
+        parts.forEach((title, idx) => {
+          if (idx > 0) richText.push({ text: ", " });
+          if (titleInfo.latestFailTitles.has(title)) {
+            richText.push({
+              text: title,
+              font: { bold: true, color: { argb: "FFB91C1C" } }
+            });
+          } else if (titleInfo.priorPassTitles.has(title)) {
+            richText.push({
+              text: title,
+              font: { bold: true, color: { argb: "FF166534" } }
+            });
+          } else {
+            richText.push({ text: title });
+          }
+        });
+
+        const cell = ws.getCell(rowIdx + 2, titleCol);
+        cell.value = { richText };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+
+    function applyExcelCourseAttemptStyles(ws, statusRows, attemptTimelineByKey, specialFailKeys) {
+      if (!statusRows.length || !attemptTimelineByKey?.size) return;
+      const courseColumns = getStatusCourseColumns(statusRows);
+      const headers = ws.getRow(1).values.slice(1);
+      const headerToIndex = new Map(headers.map((header, idx) => [header, idx + 1]));
+
+      courseColumns.forEach(courseCode => {
+        const colIdx = headerToIndex.get(courseCode);
+        if (!colIdx) return;
+        statusRows.forEach((row, rowIdx) => {
+          const studentId = String(row["BO Id"] || "").trim().toUpperCase();
+          const key = `${studentId}::${courseCode}`;
+          if (!specialFailKeys.has(key)) return;
+          const timeline = attemptTimelineByKey.get(key) || [];
+          if (!timeline.length) return;
+
+          const richText = [];
+          timeline.forEach((entry, idx) => {
+            if (idx > 0) richText.push({ text: ", " });
+            if (entry.highlightPass) {
+              richText.push({
+                text: entry.label || entry.grade,
+                font: { bold: true, color: { argb: "FF166534" } }
+              });
+            } else if (idx === timeline.length - 1) {
+              richText.push({
+                text: entry.label || entry.grade,
+                font: { bold: true, color: { argb: "FFB91C1C" } }
+              });
+            } else {
+              richText.push({ text: entry.label || entry.grade });
+            }
+          });
+
+          const cell = ws.getCell(rowIdx + 2, colIdx);
+          cell.value = { richText };
+          cell.alignment = { wrapText: true, vertical: "top" };
+        });
+      });
+    }
+
+    async function writeExcelJsWorkbook(wb, fileName) {
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    function buildBatchWiseSubjectStatusCountWorksheet(statusRows) {
+      const courseColumns = getStatusCourseColumns(statusRows);
+      const statusColumns = [
+        "Eligible for Convocation",
+        "Failed",
+        "Not Found",
+        "Passed",
+        "Prospective"
+      ];
+      const batchLabels = Array.from(new Set(
+        statusRows
+          .map(row => String(row["Actual Batch Number"] || "").trim() || "Batch Unknown")
+      )).sort((a, b) => {
+        const diff = batchSortValue(a) - batchSortValue(b);
+        if (diff !== 0) return diff;
+        return a.localeCompare(b, undefined, { numeric: true });
+      });
+
+      const bodyRowCount = batchLabels.length + 3;
+      const blockWidth = statusColumns.length + 2;
+      const colGap = 1;
+      const rowGap = 2;
+      const blocksPerRow = 2;
+      const ws = XLSX.utils.aoa_to_sheet([[]]);
+
+      courseColumns.forEach((courseCode, index) => {
+        const batchCounts = new Map(
+          batchLabels.map(batch => [batch, Object.fromEntries(statusColumns.map(status => [status, 0]))])
+        );
+        const totals = Object.fromEntries(statusColumns.map(status => [status, 0]));
+
+        for (const row of statusRows) {
+          const batch = String(row["Actual Batch Number"] || "").trim() || "Batch Unknown";
+          const status = String(row[courseCode] || "").trim();
+          if (!statusColumns.includes(status)) continue;
+          if (!batchCounts.has(batch)) {
+            batchCounts.set(batch, Object.fromEntries(statusColumns.map(label => [label, 0])));
+          }
+          batchCounts.get(batch)[status] += 1;
+          totals[status] += 1;
+        }
+
+        const block = [];
+        block.push([`Count of ${courseCode}`, "Column Labels"]);
+        block.push(["Row Labels", ...statusColumns, "Grand Total"]);
+        batchLabels.forEach(batch => {
+          const counts = batchCounts.get(batch) || {};
+          const rowTotal = statusColumns.reduce((sum, status) => sum + Number(counts[status] || 0), 0);
+          block.push([
+            batch,
+            ...statusColumns.map(status => {
+              const value = Number(counts[status] || 0);
+              return value === 0 ? "" : value;
+            }),
+            rowTotal === 0 ? "" : rowTotal
+          ]);
+        });
+        const grandTotal = statusColumns.reduce((sum, status) => sum + Number(totals[status] || 0), 0);
+        block.push([
+          "Grand Total",
+          ...statusColumns.map(status => Number(totals[status] || 0)),
+          grandTotal
+        ]);
+
+        const blockRow = Math.floor(index / blocksPerRow);
+        const blockCol = index % blocksPerRow;
+        XLSX.utils.sheet_add_aoa(ws, block, {
+          origin: {
+            r: blockRow * (bodyRowCount + rowGap),
+            c: blockCol * (blockWidth + colGap)
+          }
+        });
+      });
+
+      ws["!cols"] = Array.from({ length: blocksPerRow * (blockWidth + colGap) }, (_, idx) => {
+        const pos = idx % (blockWidth + colGap);
+        if (pos === 0) return { wch: 16 };
+        if (pos > 0 && pos <= statusColumns.length) return { wch: 22 };
+        if (pos === statusColumns.length + 1) return { wch: 14 };
+        return { wch: 4 };
+      });
+
+      return ws;
+    }
+
+    function buildStatusDefinitionWorksheet() {
+      const rows = [
+        ["Student Course Status Definitions"],
+        [],
+        ["Status Logic"],
+        ["Status", "Scenario", "How the Report Marks It"],
+        [
+          "Passed",
+          "Student has at least one counted attempt for the course and the latest counted grade is passing.",
+          "The course cell is marked Passed. Passing means the latest counted grade has grade points above C-."
+        ],
+        [
+          "Failed",
+          "Student has at least one counted attempt for the course and the latest counted grade is failed.",
+          "The course cell is marked Failed. Failed means blank grade or grade C- and below."
+        ],
+        [
+          "Failed",
+          "Student passed the course earlier, but a later counted attempt is failed.",
+          "The latest attempt still controls status, so the course cell is marked Failed. This special case is highlighted with bold red on the Failed/latest grade cell."
+        ],
+        [
+          "Prospective",
+          "Student appears in the uploaded GPA data for at least one course, but has no counted attempt for this specific course column.",
+          "The course cell is marked Prospective because the student is present in the report set, but this course is missing for that student."
+        ],
+        [
+          "Not Found",
+          "Student is present in the built-in BO Id master list, but does not appear in any processed row from the uploaded PDFs.",
+          "Every detected course cell for that student is marked Not Found."
+        ],
+        [
+          "Eligible for Convocation",
+          "Student has Passed status for every detected course column in the status matrix.",
+          "After initial marking, if the passed count equals the number of detected course columns, all course cells for that student are replaced with Eligible for Convocation."
+        ],
+        [
+          "Eligible for Convocation",
+          "Student is missing no detected course and has no Failed or Prospective course after status calculation.",
+          "The report treats this as completion across the currently detected course population."
+        ],
+        [],
+        ["Attempt And Grade Rules"],
+        ["Rule", "Scenario", "Explanation"],
+        [
+          "Latest attempt selection",
+          "Student appears in multiple PDFs or has repeated attempts for the same course.",
+          "All counted attempts are combined, then sorted by report title period such as B4 I8 2025 then B4 I1 2026, followed by Term Batch Number, L Level, and extraction sequence. The last sorted attempt is the latest attempt."
+        ],
+        [
+          "Chronological grade display",
+          "Course Attempts sheet shows multiple grades like C-, B, A.",
+          "Grades are displayed from earliest counted attempt to latest counted attempt using the same sort order: report title period, Term Batch Number, L Level, extraction sequence."
+        ],
+        [
+          "Duplicate attempts",
+          "The same student-course-grade-term-level appears more than once across uploaded PDFs.",
+          "Exact duplicate attempts are removed before the status and grade matrices are built."
+        ],
+        [
+          "Passing grade",
+          "Latest counted grade is above C-.",
+          "The course is treated as Passed unless the student qualifies for Eligible for Convocation across all detected courses."
+        ],
+        [
+          "Failing grade",
+          "Latest counted grade is blank, C-, D+, D, D-, F, E, FF, U, or any recognized grade with points at or below C-.",
+          "The course is treated as Failed."
+        ],
+        [
+          "Unknown grade text",
+          "Grade text is not blank but is not recognized in the grade-point map.",
+          "It is not treated as failed by the grade-point rule unless it maps to a failing point value."
+        ],
+        [
+          "Cutoff logic",
+          "Filename contains a period such as I2 2026 and a row contains a later period such as 2026 I3.",
+          "Attempts beyond the report cutoff inferred from the filename are ignored before status, latest grade, and attempt history are calculated."
+        ],
+        [
+          "No cutoff in filename",
+          "Filename does not contain a recognizable I-level and year.",
+          "No filename cutoff is applied; extracted rows are included if the PDF text format matches."
+        ],
+        [
+          "Earlier pass then latest fail",
+          "Student has an earlier passing counted attempt, but the latest counted attempt is failed.",
+          "Latest attempt controls the status, so the course remains Failed. Earlier passing grade/title and latest failed grade/title are specially highlighted."
+        ],
+        [],
+        ["Population And Column Rules"],
+        ["Rule", "Scenario", "Explanation"],
+        [
+          "Student population",
+          "Student exists in the built-in hardcoded BO Id to batch mapping.",
+          "The student is included in the status matrix even if absent from all uploaded PDFs."
+        ],
+        [
+          "Student name",
+          "Name is found in the PDF extraction.",
+          "The extracted name is used. If missing, the built-in hardcoded name is used."
+        ],
+        [
+          "Actual Batch Number",
+          "Student has a BO Id in the built-in batch mapping.",
+          "Actual Batch Number comes from the built-in confirmed student mapping, not from the PDF filename."
+        ],
+        [
+          "Report title in Course Attempts",
+          "Filename contains Batch 2 and I1 2026.",
+          "Attempt labels use B2 I1 2026 before the grade, for example B2 I1 2026: B."
+        ],
+        [
+          "Report title in Course Attempts",
+          "Filename has I1 2026 but no batch number.",
+          "Attempt labels use BU I1 2026 before the grade, where BU means Batch Unknown."
+        ],
+        [
+          "Removed matrix columns",
+          "Title and PDF Batch Number are not shown as separate columns in the status workbook matrices.",
+          "The matrices keep BO Id, Student Name, Actual Batch Number, and course columns. Report title remains visible inside Course Attempts cells."
+        ],
+        [
+          "Combined or all-batch PDF",
+          "One PDF contains students from multiple actual batches.",
+          "Students are still grouped by Actual Batch Number from the built-in BO Id mapping. PDF Batch Number and Title reflect the filename."
+        ],
+        [
+          "Course population",
+          "A course code appears in at least one processed counted row from uploaded PDFs.",
+          "That course code becomes a column in Student Course Status, Latest Grades, and Course Attempts."
+        ],
+        [
+          "Missing course for present student",
+          "Student appears in processed data for other courses, but not for this course column.",
+          "That course cell is marked Prospective."
+        ],
+        [
+          "Absent student",
+          "Student appears in the built-in mapping but does not appear in any processed row.",
+          "That student's course cells are marked Not Found."
+        ],
+        [],
+        ["Workbook Sheets"],
+        ["Sheet", "Purpose", "How To Read It"],
+        [
+          "Student Course Status",
+          "Main BO Id-wise status matrix.",
+          "Course cells show Passed, Failed, Prospective, Not Found, or Eligible for Convocation."
+        ],
+        [
+          "Course Status Counts",
+          "Course-wise totals by status.",
+          "Each row is a course code with counts of Prospective, Passed, Eligible for Convocation, Not Found, and Failed."
+        ],
+        [
+          "Latest Grades",
+          "Same structure as Student Course Status, but course cells show the latest counted grade where available.",
+          "If there is no grade for that student-course, the cell keeps Prospective or Not Found."
+        ],
+        [
+          "Course Attempts",
+          "Same structure as Latest Grades, but course cells show all counted grades for that student-course.",
+          "Attempts are comma-separated in chronological order with report title and grade, for example B2 I1 2026: C-, B2 I2 2026: B."
+        ],
+        [
+          "Batch Status Counts",
+          "Course-wise status counts grouped by Actual Batch Number.",
+          "Each course block shows counts by actual batch and grand total."
+        ],
+        [
+          "Status Definitions",
+          "Explains the scenario-based logic and color coding.",
+          "Use this sheet as the report legend."
+        ],
+        [],
+        ["Color And Highlight Legend"],
+        ["Visual", "Meaning", "Where Applied"],
+        [
+          "Light green fill",
+          "Passed or Eligible for Convocation.",
+          "Course cells in Student Course Status, Latest Grades, and Course Attempts."
+        ],
+        [
+          "Light red fill",
+          "Failed.",
+          "Course cells in Student Course Status, Latest Grades, and Course Attempts."
+        ],
+        [
+          "Light orange fill",
+          "Not Found.",
+          "Course cells in Student Course Status, Latest Grades, and Course Attempts."
+        ],
+        [
+          "Light blue fill",
+          "Prospective.",
+          "Course cells in Student Course Status, Latest Grades, and Course Attempts."
+        ],
+        [
+          "Bold red font in course cell",
+          "Special case where latest counted attempt is failed after an earlier counted passing attempt.",
+          "Failed status in Student Course Status, latest failed grade in Latest Grades, and latest failed grade inside Course Attempts."
+        ],
+        [
+          "Bold green font in Course Attempts",
+          "Earlier passing grade in the special case where latest counted attempt is failed.",
+          "The earlier passing attempt label inside the comma-separated attempt list, including report title and grade."
+        ]
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [
+        { wch: 24 },
+        { wch: 52 },
+        { wch: 90 }
+      ];
+      return ws;
     }
 
     function buildStudentStatusSubsetRows(courseRows, type) {
@@ -2423,20 +3142,49 @@
       setStatus("Excel file downloaded successfully.", "ok");
     });
 
-    downloadStatusMatrixBtn.addEventListener("click", () => {
+    downloadStatusMatrixBtn.addEventListener("click", async () => {
       if (!masterCourseRows.length) {
         setStatus("No processed data available for status report export.", "warn");
+        return;
+      }
+      if (!window.ExcelJS) {
+        setStatus("Excel styling library is still loading. Please try again in a moment.", "warn");
         return;
       }
 
       const statusRows = buildStudentCourseStatusRows(masterCourseRows);
       const countRows = buildStudentCourseStatusCountRows(statusRows);
-      const ws = XLSX.utils.json_to_sheet(statusRows);
-      const ws2 = XLSX.utils.json_to_sheet(countRows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Student Course Status");
-      XLSX.utils.book_append_sheet(wb, ws2, "Course Status Counts");
-      XLSX.writeFile(wb, "Student_Course_Status_Report.xlsx");
+      const latestGradeReport = buildStudentLatestGradeRows(masterCourseRows, statusRows);
+      const courseAttemptRows = buildStudentCourseAttemptRows(masterCourseRows, statusRows);
+      const batchStatusRows = XLSX.utils.sheet_to_json(
+        buildBatchWiseSubjectStatusCountWorksheet(statusRows),
+        { header: 1, defval: "", blankrows: true }
+      );
+      const definitionRows = XLSX.utils.sheet_to_json(
+        buildStatusDefinitionWorksheet(),
+        { header: 1, defval: "", blankrows: true }
+      );
+
+      const wb = new window.ExcelJS.Workbook();
+      const ws = addJsonExcelWorksheet(wb, "Student Course Status", statusRows);
+      const ws2 = addJsonExcelWorksheet(wb, "Course Status Counts", countRows);
+      const ws3 = addJsonExcelWorksheet(wb, "Latest Grades", latestGradeReport.rows);
+      const ws4 = addJsonExcelWorksheet(wb, "Course Attempts", courseAttemptRows);
+      addAoaExcelWorksheet(wb, "Batch Status Counts", batchStatusRows);
+      addAoaExcelWorksheet(wb, "Status Definitions", definitionRows);
+      applyExcelStudentMatrixStyles(ws, statusRows, { specialFailKeys: latestGradeReport.specialFailKeys });
+      applyExcelStudentMatrixStyles(ws3, statusRows, { specialFailKeys: latestGradeReport.specialFailKeys });
+      applyExcelStudentMatrixStyles(ws4, statusRows, { specialFailKeys: latestGradeReport.specialFailKeys });
+      applyExcelSpecialTitleStyles(ws, statusRows, latestGradeReport.specialTitlesByStudent);
+      applyExcelSpecialTitleStyles(ws3, latestGradeReport.rows, latestGradeReport.specialTitlesByStudent);
+      applyExcelSpecialTitleStyles(ws4, courseAttemptRows, latestGradeReport.specialTitlesByStudent);
+      applyExcelCourseAttemptStyles(
+        ws4,
+        statusRows,
+        latestGradeReport.attemptTimelineByKey,
+        latestGradeReport.specialFailKeys
+      );
+      await writeExcelJsWorkbook(wb, "Student_Course_Status_Report.xlsx");
       setStatus("Student course status report downloaded successfully.", "ok");
     });
 
